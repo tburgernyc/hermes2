@@ -25,9 +25,9 @@ const dsn = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL_UNPOO
 /** True when a Postgres DSN is configured. DB-backed suites gate on this. */
 export const HAS_DB = Boolean(dsn && /^postgres(ql)?:\/\//.test(dsn));
 
-/** The two non-owner runtime roles the schema's grants + RLS policies target. */
-export type RuntimeRole = "hermes_app" | "hermes_token";
-const RUNTIME_ROLES: readonly RuntimeRole[] = ["hermes_app", "hermes_token"];
+/** The non-owner runtime roles the schema's grants + RLS policies target. */
+export type RuntimeRole = "hermes_app" | "hermes_token" | "hermes_auth";
+const RUNTIME_ROLES: readonly RuntimeRole[] = ["hermes_app", "hermes_token", "hermes_auth"];
 
 let poolSingleton: Pool | undefined;
 

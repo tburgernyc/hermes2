@@ -53,3 +53,19 @@ export async function withOrg<T>(orgId: string, fn: (tx: Tx) => Promise<T>): Pro
     return fn(tx);
   });
 }
+
+/**
+ * Run `fn` inside a transaction elevated to the least-privilege `hermes_auth` role — the ONLY path
+ * that may read a user cross-tenant (the login-by-email lookup) and write the lockout columns.
+ *
+ * Authentication has no org context yet (the org is derived FROM the looked-up user), so this path
+ * deliberately does NOT set `app.current_org_id`; hermes_auth's policies are `USING (true)`, scoped
+ * to the users table only. `SET LOCAL ROLE` is transaction-scoped (reverts on commit/rollback). The
+ * role name is a fixed literal — never user input — so interpolation is safe.
+ */
+export async function withAuthRole<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return getDb().transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL ROLE hermes_auth`);
+    return fn(tx);
+  });
+}

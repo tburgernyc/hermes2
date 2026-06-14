@@ -1,16 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { hello } from "./index.js";
+import { AuthError, isAdmin, isVendor, toRole } from "./rbac.js";
 
-describe("hello", () => {
-  it("greets the given name", () => {
-    // Arrange
-    const name = "Hermes";
+describe("rbac", () => {
+  it("normalizes the DB user_role enum to the session role", () => {
+    expect(toRole("ADMIN")).toBe("admin");
+    expect(toRole("VENDOR")).toBe("vendor");
+  });
 
-    // Act
-    const greeting = hello(name);
+  it("evaluates role predicates", () => {
+    expect(isAdmin("admin")).toBe(true);
+    expect(isAdmin("vendor")).toBe(false);
+    expect(isVendor("vendor")).toBe(true);
+    expect(isVendor("admin")).toBe(false);
+  });
 
-    // Assert
-    expect(greeting).toBe("hello, Hermes");
+  it("AuthError carries the HTTP status and name", () => {
+    const e = new AuthError(403, "nope");
+    expect(e.status).toBe(403);
+    expect(e.name).toBe("AuthError");
+    expect(e).toBeInstanceOf(Error);
   });
 });

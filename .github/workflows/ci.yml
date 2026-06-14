@@ -90,6 +90,58 @@ jobs:
       - name: Schema + negative + RLS suite
         run: pnpm --filter @hermes/db test
 
+  # Auth-boundary e2e: build the app and run the Playwright auth suite against a clean pgvector
+  # container. Secret-free (Phase 2 makes NO AI calls, so ANTHROPIC_API_KEY is deliberately absent —
+  # CLAUDE.md §4). The suite's global-setup migrates the DB and seeds its own admin/vendor fixtures.
+  web-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Migrate/seed + the running app all use the container superuser DSN for e2e. RLS faithfulness is
+      # covered by the `db` job; this job exercises the auth boundary (login, TOTP, middleware, CSRF).
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # Deterministic NON-secret test values (never used in prod). 64 hex chars = a 32-byte AES key.
+      AUTH_SECRET: e2e-ci-auth-secret-0123456789abcdef0123
+      TOTP_ENCRYPTION_KEY: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+      TOKEN_SIGNING_SECRET: e2e-ci-token-signing-secret-0123456789abcd
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web (+ workspace deps)
+        run: pnpm turbo build --filter=@hermes/web
+
+      - name: Install Playwright browser
+        run: pnpm --filter @hermes/web exec playwright install --with-deps chromium
+
+      - name: Auth-boundary e2e suite
+        run: pnpm --filter @hermes/web test:e2e
+
   # Neon-fidelity acceptance: the same suite against a real, THROWAWAY Neon branch — validates the
   # pooler / owner-not-superuser RLS semantics the generic container can't. Gated on CI secrets; when
   # they are absent the job emits a ::notice:: and skips the real steps (visible, never a silent

@@ -35,6 +35,9 @@ const EXPECTED_POLICIES = new Set<string>([
   ...EXPECTED_TABLES.map((t) => `${t}.${t}_tenant_isolation`),
   "vendor_quotes.vendor_quotes_token_prospect_only",
   "documents.documents_token_prospect_only",
+  // hermes_auth least-privilege login path (0005_auth.sql): read any user, write lockout only.
+  "users.users_auth_select",
+  "users.users_auth_lockout",
 ]);
 
 const RESTRICTIVE_POLICIES = new Set<string>([
@@ -111,7 +114,7 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
         rolsuper: boolean;
       }>(
         `SELECT rolname, rolcanlogin, rolbypassrls, rolsuper
-         FROM pg_roles WHERE rolname IN ('hermes_app', 'hermes_token')`,
+         FROM pg_roles WHERE rolname IN ('hermes_app', 'hermes_token', 'hermes_auth')`,
       );
       for (const r of rl.rows) {
         roles.set(r.rolname, {
@@ -179,7 +182,7 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
   });
 
   it("creates non-owner roles with no login / no BYPASSRLS / no superuser", () => {
-    for (const name of ["hermes_app", "hermes_token"]) {
+    for (const name of ["hermes_app", "hermes_token", "hermes_auth"]) {
       const r = roles.get(name);
       expect(r, `role ${name}`).toBeDefined();
       expect(r?.canLogin, `${name} canLogin`).toBe(false);

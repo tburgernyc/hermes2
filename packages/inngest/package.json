@@ -1,0 +1,35 @@
+{
+  "name": "@hermes/inngest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@hermes/ai": "workspace:*",
+    "@hermes/core": "workspace:*",
+    "@hermes/db": "workspace:*",
+    "@hermes/emails": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "inngest": "3.49.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.20.0",
+    "dotenv": "17.4.2",
+    "pg": "8.21.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.8"
+  }
+}

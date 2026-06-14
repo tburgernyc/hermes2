@@ -225,6 +225,54 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 2 — Auth/RBAC Trust Boundary — **CODE COMPLETE, CI GREEN** (2026-06-14)
+
+**What shipped** (branch `phase-2-auth`, off `main @ 9c6a24e`; PR #3 — all 6 checks green):
+
+- **DB (`packages/db`):** new `manual/0005_auth.sql` least-privilege **`hermes_auth`** login role. Login
+  resolves a user by email BEFORE any org context exists — a cross-tenant read the RLS-bound `hermes_app`
+  role structurally cannot do (RLS enabled + no matching policy ⇒ 0 rows). `hermes_auth` may read any
+  user's auth columns and write ONLY the lockout columns (column-scoped UPDATE + 2 permissive users-only
+  policies); granted to `hermes_app` `WITH INHERIT FALSE` (explicit `SET LOCAL ROLE` via the new
+  `withAuthRole` helper — no ambient inheritance). Drift guards updated (now **19 policies**, + the
+  `hermes_auth` role); new `negative.auth-role.test.ts` proves the boundary. **122/122 vs Neon.**
+- **`packages/core`** (framework-free, DB-aware): `password.ts` (argon2id via `@node-rs/argon2`),
+  `totp.ts` (otplib + AES-256-GCM at rest), `tokens.ts` (signed single-purpose portal tokens; purposes
+  aligned to the `token_purpose` enum), `csrf.ts` (same-origin), `auth-users.ts` (lockout via
+  `withAuthRole`; TOTP read/write via `withOrg` — `hermes_auth` deliberately can't write the TOTP
+  columns), `rbac.ts`. 17 unit tests.
+- **`apps/web`** (Auth.js v5, `next-auth@5.0.0-beta.31`): Credentials + JWT; **edge-safe split config**
+  (`auth.config.ts` — no DB/argon2/otplib — for middleware; `auth.ts` for the Node jwt callback). The ONLY
+  path to `totpVerified=true` is a live code the SERVER verifies against the stored secret (jwt callback,
+  `trigger==="update"`) — never a client-set flag. Middleware gates `/admin/**` (admin + satisfied TOTP,
+  with enrollment→step-up redirects) vs `/portal/**` (vendor). Two-step TOTP step-up + first-time
+  enrollment (QR), `/dashboard` role router, and a same-origin-guarded mutation Route Handler.
+- **e2e (Playwright):** the 4 required assertions (admin password + live TOTP → /admin; vendor → /portal +
+  /admin blocked; unauth /admin → /login; cross-origin POST → 403). global-setup migrates + seeds an
+  enrolled admin (fixed base32 TOTP secret) + a vendor.
+- **CI:** new secret-free **`web-e2e`** job (pgvector container → build → playwright install → suite).
+  `.gitleaks.toml` allowlists the throwaway e2e/CI test credentials only (real secrets never committed).
+
+**Non-obvious decisions / footguns:**
+- next-auth v5 **JWT module augmentation didn't apply** under the beta + bundler resolution (token fields
+  typed `{}`) → read/write JWT claims through an explicit `TokenClaims` cast in both callbacks (Session +
+  User augmentation DO work).
+- **`serverExternalPackages` alone didn't externalize** the transitive (workspace-package) native deps
+  under pnpm → also pushed `@node-rs/argon2` + `pg` onto webpack `externals` for the Node server build
+  (webpack can't parse argon2's `.node`).
+- `unstable_update`'s arg type rejects arbitrary fields → wrapped in a typed
+  `updateTotp({ totpCode, refreshEnrollment })` (`as unknown as Session`); the jwt callback reads it as
+  `TotpUpdate`.
+- e2e app connects with the migration-owner DSN (RLS faithfulness is covered by the `db` job);
+  `withAuthRole` still `SET LOCAL ROLE`s into `hermes_auth`, exercising its grants/policies.
+
+**Operator follow-ups (still open):** set `hermes_app` LOGIN + password out-of-band and confirm the
+`hermes_auth` membership grant applied; ensure `AUTH_SECRET` / `TOTP_ENCRYPTION_KEY` /
+`TOKEN_SIGNING_SECRET` set for runtime (already in `.env.example`); add **`web-e2e`** to branch-protection
+required checks (keep `db`, NOT `db-acceptance`). **TIME-SENSITIVE (Phase 1 carryover):** GitHub forces
+Node24 on Node20 actions starting 2026-06-16 — bump checkout/setup-node/action-setup → v6, gitleaks → v3
+(currently warnings, not failures). Phase 3 (`packages/ai`) starts off `main` once PR #3 merges.
+
 ### Phase 1 — Data Model + Migrations — **CODE COMPLETE** (2026-06-14)
 
 **What shipped** (branch `phase-1-data-model`, off `main @ 2d46b1c`):

@@ -1,4 +1,10 @@
-// @hermes/ai — Anthropic SDK wrappers (triage, score, evaluate, draft, export)
-// plus fallbacks live here (Phase 2+). Placeholder export keeps the package
-// type-checkable and buildable in Phase 0.
-export const AI_PACKAGE = "@hermes/ai" as const;
+/**
+ * @hermes/ai — the typed AI orchestration engine (CLAUDE.md §5). Anthropic SDK wrappers with Zod
+ * structured outputs + a strict-tool fallback, untrusted-text fencing, deterministic compliance, and
+ * Voyage embeddings. All model output is validated; on any anomaly we fail closed to human review.
+ */
+export * from "./client.js";
+export * from "./schemas.js";
+export * from "./compliance.js";
+export * from "./engine.js";
+export * from "./embed.js";

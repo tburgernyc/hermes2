@@ -225,6 +225,40 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 3 — AI Orchestration Engine — **CODE COMPLETE** (2026-06-14)
+
+**What shipped** (branch `phase-3-ai`, off `phase-2-auth`; PR stacked on #3 — merge #3 first):
+
+- **`packages/ai`** (DB-free; deps `@anthropic-ai/sdk@0.104.1` + `zod@4.4.3`): the six typed functions —
+  `triageSolicitation` / `scoreProspect` / `draftSOW` (Sonnet), `evaluateQuotes` / `draftProposal` (Opus),
+  `exportProposalDoc` (Opus + code-execution). `createEngine(client)` enables DI for tests; lazy
+  `getEngine()` + named wrappers give prod ergonomics.
+- **Structured outputs (`client.callStructured`):** PRIMARY = `messages.parse` + `output_config.format`
+  via `zodOutputFormat` (the SDK is peer-resolved with zod 4.4.3, so the helper is **Zod-4 native**);
+  FALLBACK = a forced STRICT-tool call reusing the same JSON schema (`format.schema`); both Zod-validate;
+  after bounded retries → `FailClosedError` (fail closed to human review). No temperature/top_p/thinking
+  budget (Opus 4.8 / Sonnet 4.6 reject them → 400).
+- **Safety:** every untrusted input is `fenceUntrusted`-wrapped (strips spoofed `</untrusted>` delimiters)
+  with the standing `UNTRUSTED_RULE` in the cached system prefix. Compliance is DETERMINISTIC
+  (`compliance.ts` — LOS 50% / T&M 0-markup / pass-through 70% / realism / TINA), never model-decided.
+- **`exportProposalDoc`** uses the CURRENT `code_execution_20260120` tool (the reference's `_20250522` was
+  stale), retrieving the generated DOCX/PDF via the Files API. **`embed.ts`** = Voyage `voyage-3.5`,
+  asserts returned dim === `EMBED_DIM` (1024) or fails closed.
+- **Tests (23; 21 run + 2 gated-live):** schema valid/invalid (an out-of-range value can't slip through);
+  `callStructured` primary / fallback / fail-closed (mocked client); the **adversarial-injection unit**
+  (the scope is fenced as data + carries the rule; `injectionAttemptsDetected` is surfaced); deterministic
+  compliance rules. The gated LIVE injection tests `describe.skip` without `ANTHROPIC_API_KEY` (never in
+  CI — §4 billing separation). AI unit tests run in the existing **`build`** job's `turbo test`; no new CI
+  job needed.
+
+**Non-obvious decisions:** AI output enums use the codebase UPPERCASE convention (`FFP` / `PURSUE`) so they
+map cleanly to the DB enums downstream. The AI package is intentionally DB-free (`EMBED_DIM` pinned locally
+with a "must match @hermes/db" note). `messages.parse`'s `parsed_output` is already Zod-validated by the
+SDK; we re-validate anyway (belt + suspenders, fail-closed).
+
+**Verification:** `pnpm turbo typecheck lint build` 15/15; `@hermes/ai` 21/21 (+2 live skipped); injection +
+fallback + fail-closed unit tests pass.
+
 ### Phase 2 — Auth/RBAC Trust Boundary — **CODE COMPLETE, CI GREEN** (2026-06-14)
 
 **What shipped** (branch `phase-2-auth`, off `main @ 9c6a24e`; PR #3 — all 6 checks green):

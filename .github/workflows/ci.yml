@@ -30,11 +30,179 @@ jobs:
       - name: Lint
         run: pnpm turbo lint
 
+      # No DB DSN here: @hermes/db's DB-backed suites SKIP with a logged notice (HAS_DB=false);
+      # pure unit suites still run. The 'db' job below exercises the schema against a real Postgres.
       - name: Unit tests
         run: pnpm turbo test
 
       - name: Build
         run: pnpm turbo build
+
+  # Schema integration: a CLEAN migrate from an EMPTY Postgres + the full schema/negative/RLS suite,
+  # against an ephemeral pgvector container. Secret-free, so it runs on every PR (including forks).
+  db:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Owner DSN for migrate/seed; the suite reads the same var and SET ROLEs into the non-owner
+      # runtime roles that the migration creates. The container superuser owns the objects, so the
+      # REVOKE/GRANT/RLS guards bind exactly as they do under the Neon migration-owner role.
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@localhost:5432/postgres
+      # Make a missing DSN FATAL in this job (setup.ts throws on REQUIRE_DB && !HAS_DB): a silently
+      # skipped schema suite that still exits 0 would be a false green on the load-bearing gate.
+      REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrate (extensions → roles → tables → guards → grants)
+        run: pnpm --filter @hermes/db db:migrate
+
+      - name: Seed (idempotent)
+        run: pnpm --filter @hermes/db db:seed
+
+      # Run the package's vitest DIRECTLY (not `pnpm turbo test`): Turborepo STRICT env mode would
+      # otherwise strip the DSN vars and flip HAS_DB to false. turbo.json also lists them in
+      # passThroughEnv as a backstop, but the direct invocation is the primary guarantee.
+      - name: Schema + negative + RLS suite
+        run: pnpm --filter @hermes/db test
+
+  # Neon-fidelity acceptance: the same suite against a real, THROWAWAY Neon branch — validates the
+  # pooler / owner-not-superuser RLS semantics the generic container can't. Gated on CI secrets; when
+  # they are absent the job emits a ::notice:: and skips the real steps (visible, never a silent
+  # green). The branch is always torn down. Secrets are CI-only and never shipped to Fly.
+  db-acceptance:
+    runs-on: ubuntu-latest
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+      NEON_API: https://console.neon.tech/api/v2
+      REQUIRE_DB: "1" # a missing DSN is fatal once the gate is enabled (no silent skip)
+    steps:
+      - name: Gate on Neon secrets
+        id: gate
+        run: |
+          if [ -z "${NEON_API_KEY}" ] || [ -z "${NEON_PROJECT_ID}" ]; then
+            msg="Neon acceptance SKIPPED — NEON_API_KEY / NEON_PROJECT_ID not set. Schema was still verified by the 'db' (pgvector container) job. Branch protection's required check should be 'db', NOT 'db-acceptance'."
+            echo "::notice title=Neon acceptance skipped::${msg}"
+            echo "⚠️ ${msg}" >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.enabled == 'true'
+
+      - uses: pnpm/action-setup@v4
+        if: steps.gate.outputs.enabled == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        if: steps.gate.outputs.enabled == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Create throwaway Neon branch
+        id: branch
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          name="ci/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          resp="$(curl -sS -f -X POST \
+            "${NEON_API}/projects/${NEON_PROJECT_ID}/branches" \
+            -H "Authorization: Bearer ${NEON_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"branch\":{\"name\":\"${name}\"},\"endpoints\":[{\"type\":\"read_write\"}]}")"
+          branch_id="$(printf '%s' "$resp" | jq -r '.branch.id // empty')"
+          if [ -z "$branch_id" ]; then
+            echo "::error::Neon branch create returned no branch id"
+            # Allowlist-scrub: print only known-safe fields — never the password-bearing URI.
+            printf '%s' "$resp" | jq '{branch: .branch.id, ops: [.operations[]?.action]}' || true
+            exit 1
+          fi
+          # Record the id FIRST, so the always() teardown can delete the branch even if any later
+          # command in this step fails — no orphaned-branch leak.
+          echo "branch_id=${branch_id}" >> "$GITHUB_OUTPUT"
+          echo "created Neon branch ${branch_id}"
+          # Wait for the branch's create / start-compute operations to finish, so we don't connect to a
+          # compute still in 'init' (the main flake source on a just-created Neon endpoint).
+          for op in $(printf '%s' "$resp" | jq -r '.operations[]?.id // empty'); do
+            for _ in $(seq 1 30); do
+              status="$(curl -sS -f -H "Authorization: Bearer ${NEON_API_KEY}" \
+                "${NEON_API}/projects/${NEON_PROJECT_ID}/operations/${op}" | jq -r '.operation.status')"
+              case "$status" in
+                finished) break ;;
+                failed | cancelled) echo "::error::Neon operation ${op} ${status}"; exit 1 ;;
+                *) sleep 2 ;;
+              esac
+            done
+          done
+          # Fetch the DIRECT (non-pooled) owner URI from the dedicated endpoint with an EXPLICIT role +
+          # database. This is robust to the parent branch later gaining extra roles/dbs (e.g. when the
+          # operator adds the hermes_app LOGIN role) — unlike the optional connection_uris array on the
+          # create response, which Neon omits for multi-role/db parents.
+          uri="$(curl -sS -f -G \
+            "${NEON_API}/projects/${NEON_PROJECT_ID}/connection_uri" \
+            -H "Authorization: Bearer ${NEON_API_KEY}" \
+            --data-urlencode "branch_id=${branch_id}" \
+            --data-urlencode "database_name=neondb" \
+            --data-urlencode "role_name=neondb_owner" | jq -r '.uri // empty')"
+          if [ -z "$uri" ]; then echo "::error::Neon connection_uri endpoint returned no uri"; exit 1; fi
+          # The URI embeds the branch password — mask it before it can reach any log, then hand it to
+          # later steps via env (not an output, which would persist it in the run's output store).
+          echo "::add-mask::${uri}"
+          echo "ACCEPTANCE_DSN=${uri}" >> "$GITHUB_ENV"
+
+      - name: Migrate + seed + suite (real Neon branch)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          MIGRATION_DATABASE_URL: ${{ env.ACCEPTANCE_DSN }}
+          DATABASE_URL_UNPOOLED: ${{ env.ACCEPTANCE_DSN }}
+        run: |
+          pnpm --filter @hermes/db db:migrate
+          pnpm --filter @hermes/db db:seed
+          pnpm --filter @hermes/db test
+
+      - name: Delete throwaway Neon branch
+        if: always() && steps.branch.outputs.branch_id != ''
+        run: |
+          # -f makes curl exit non-zero on HTTP 4xx/5xx, so a REJECTED delete correctly takes the
+          # warning branch instead of falsely reporting success and leaking a live branch.
+          if curl -sS -f -X DELETE \
+            "${NEON_API}/projects/${NEON_PROJECT_ID}/branches/${{ steps.branch.outputs.branch_id }}" \
+            -H "Authorization: Bearer ${NEON_API_KEY}" >/dev/null; then
+            echo "deleted Neon branch ${{ steps.branch.outputs.branch_id }}"
+          else
+            echo "::warning title=Neon branch leak::Failed to delete branch ${{ steps.branch.outputs.branch_id }} — delete it manually in the Neon console."
+          fi
 
   gitleaks:
     runs-on: ubuntu-latest
@@ -52,6 +220,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Dependency audit
         run: pnpm audit --audit-level=high
         continue-on-error: true # report, don't block PRs on transitive advisories

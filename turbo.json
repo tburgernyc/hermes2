@@ -10,7 +10,8 @@
     },
     "lint": {},
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "passThroughEnv": ["MIGRATION_DATABASE_URL", "DATABASE_URL_UNPOOLED", "REQUIRE_DB"]
     }
   }
 }

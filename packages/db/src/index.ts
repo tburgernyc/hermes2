@@ -1,3 +1,7 @@
-// @hermes/db — Drizzle schema, migrations, and seed live here (Phase 1+).
-// Placeholder export keeps the package type-checkable and buildable in Phase 0.
-export const DB_PACKAGE = "@hermes/db" as const;
+/**
+ * @hermes/db — Drizzle schema, runtime client, and the org-directives validator for Hermes 2.0.
+ * Migrations and seed live under ./migrations and ./src/seed.ts (Stage 2).
+ */
+export * from "./schema/index.js";
+export * from "./directives.js";
+export * from "./client.js";

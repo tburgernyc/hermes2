@@ -225,6 +225,61 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 1 — Data Model + Migrations — **CODE COMPLETE** (2026-06-14)
+
+**What shipped** (branch `phase-1-data-model`, off `main @ 2d46b1c`):
+
+- **Schema (`packages/db/src/schema/*`):** 15 tables, 25 UPPERCASE pgEnums, composite `(org_id, id)` FKs
+  (cross-tenant parentage is structurally impossible), 41 named CHECKs, and 3 justified `vector(1024)`
+  HNSW (`vector_cosine_ops`) columns for the capability⇄scope semantic match (Voyage embeddings).
+- **Migrations + runner:** `migrate.ts` applies, in order, `manual/0000_extensions` → `0001_roles` →
+  drizzle `0000_tables` → `0003_guards` → `0004_grants` (every manual step idempotent). Seed split into
+  pure `seed-core.ts` (`seedOrg`, testable) + thin `seed.ts` CLI; idempotent by natural key.
+- **Baked-in guards:** RLS **ENABLED but NOT FORCED** (owner runs migrate/seed exempt; non-owner
+  `hermes_app`/`hermes_token` bound) — 15 `tenant_isolation` policies + **2 RESTRICTIVE token policies**
+  (token may write only a prospect-scoped quote/document, never a vetted vendor); `audit_log` append-only
+  (BEFORE UPDATE/DELETE + TRUNCATE triggers **and** `REVOKE`); shared `updated_at` trigger; T&M markup
+  lock, quote XOR, no-auto-submit + counsel gate, sourcing/outreach human gates — all CHECK/trigger
+  enforced, never model-scored (Prime Directive §2).
+- **Tests (116, Vitest):** schema contract/constraints/guards (set-equality drift guards on the CHECK +
+  policy sets; trigger→function binding via `tgfoid`) + negatives (audit immutability incl. TRUNCATE,
+  prospect-can't-write-vendor, quote XOR, no-auto-submit, T&M lock, similarly-situated, documents owner +
+  FK RESTRICT/CASCADE, field CHECKs) + RLS isolation/fail-closed + seed idempotency + pure-unit directives.
+  Harness: one owner pool, every behavioural test in `BEGIN…ROLLBACK` + `SET LOCAL ROLE` (nothing commits).
+- **CI (Stage 4, `.github/workflows/ci.yml`):** added a per-PR **`db`** job (pgvector `pg16` service
+  container → clean migrate + seed + full 116-suite, secret-free, runs on forks) and a gated
+  **`db-acceptance`** job (real throwaway Neon branch: ops-poll for cold-start, dedicated `connection_uri`
+  endpoint with explicit role/db, masked DSN via `$GITHUB_ENV`, **guaranteed `-f` teardown**,
+  skip-with-visible-notice + step-summary when secrets absent — never a silent green). `build` job stays
+  green DB-less via `HAS_DB` skip. `NEON_API_KEY` + `NEON_PROJECT_ID` are set as **repo Actions secrets
+  only** (never shipped to Fly).
+
+**Local + adversarial verification:** `pnpm turbo typecheck lint build` = 15/15; DB suite **116/116 vs
+Neon**. Two 4-dimension adversarial-workflow audits ran: the schema audit (0 CRITICAL/HIGH, 11 fixes
+folded in, suite grew 82→116) and the **CI audit** (0 CRITICAL; 1 HIGH + 5 MEDIUM + 10 LOW). HIGH fix
+verified: a `REQUIRE_DB=1` guard in `setup.ts` makes a DSN-less `db`/`db-acceptance` run **fail red**
+instead of skipping silently to green (proven: forced-empty DSN → 15 failed suites, exit 1). MEDIUM fixes:
+branch-id recorded before URI validation (no orphan leak), `-f` on the delete, cold-start operation poll,
+`connection_uri` endpoint instead of the optional create-response array, allowlist error scrub.
+
+**Non-obvious decisions / footguns to remember:**
+- Composite-FK `ON DELETE RESTRICT` raises **`23001`** (restrict_violation), not 23503.
+- `current_setting('app.current_org_id', true)` returns **`''`** (not NULL) on a reused pooled conn →
+  `''::uuid` ERRORS — fail-closed, but a footgun if any `hermes_app` query bypasses `withOrg`.
+- `turbo.json` lists the DSN vars in `passThroughEnv`, but the `db` job runs vitest via `pnpm --filter`
+  (not `pnpm turbo test`) on purpose — turbo STRICT env mode would otherwise strip them.
+- **Branch protection's required check must be `db`, NOT `db-acceptance`** (the latter is green-when-skipped).
+
+**Operator follow-ups (still open):** rotate the exposed Neon DB password **and** the `NEON_API_KEY` (both
+were pasted in chat — literal values are deliberately NOT repeated here); set `hermes_app` LOGIN + password
+out-of-band for runtime; **far-04**
+(whether the T&M 0-markup lock extends to ODC/TRAVEL) HELD for counsel. Optional hardening deferred to avoid
+risking the green gate: a GitHub `environment:` gate on the acceptance job, and bumping action majors
+(checkout/setup-node/action-setup → v6, gitleaks → v3 — test the action-setup bump against `packageManager`).
+
+**Acceptance:** clean migrate + idempotent seed + all schema/negative/RLS tests green (local vs Neon and the
+CI pgvector container). PR opened on `phase-1-data-model`; do not open Phase 2 until this CI gate is green.
+
 ### Phase 0 — Scaffold + CI + Fly deploy skeleton — **CODE COMPLETE** (2026-06-14)
 
 **What shipped** (branch `phase-0-scaffold`, commit `20e674b`):

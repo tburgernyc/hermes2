@@ -1,0 +1,16 @@
+node_modules
+.next
+dist
+.turbo
+coverage
+pnpm-lock.yaml
+
+# Generated / vendored
+apps/web/next-env.d.ts
+**/*.tsbuildinfo
+
+# Local + editor config (not part of the shared code style)
+.claude
+
+# Long-form docs are authored by hand, not Prettier-managed
+*.md

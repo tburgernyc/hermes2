@@ -217,3 +217,45 @@ security-reviewer, build-error-resolver, database-reviewer, the fastapi/react re
 / self-looping agents (loop-operator, autonomous-loops, chief-of-staff) — this is a regulated codebase and no
 agent should self-advance state or run unattended shell. Keep a permissions deny list configured. Review any
 learned "instincts" rather than letting them silently accrete in auth, pricing, or bid-adjacent code.
+
+---
+
+## 11. Phase log
+
+> Append one entry per phase as it closes. Newest first. Record what shipped, any
+> non-obvious decisions, and what is left for the operator to run.
+
+### Phase 0 — Scaffold + CI + Fly deploy skeleton — **CODE COMPLETE** (2026-06-14)
+
+**What shipped** (branch `phase-0-scaffold`, commit `20e674b`):
+
+- pnpm 9 + Turborepo 2.x monorepo: `apps/web` (Next.js 15.4.10, App Router, `output: "standalone"`)
+  plus typed stubs for `packages/{db,ai,core,emails}`. TS `strict` everywhere.
+- Tooling: ESLint 9 flat config (root for the non-Next packages; `apps/web` layers
+  `eslint-config-next` flat configs on top), Prettier, Vitest 4 (`--passWithNoTests`).
+- CI (`.github/workflows/ci.yml`): build job (typecheck → lint → test → build via Turbo) + gitleaks
+  secret scan + `pnpm audit --audit-level=high` (report-only).
+- Multi-stage `Dockerfile` (Node 22, corepack pnpm 9, non-root `nextjs` user, standalone runtime) and
+  `fly.toml` (region `iad`, `min_machines_running=1`). `DEPLOY.md` is the operator runbook.
+- `.claude/` SessionStart hook (install + Turbo lint/test/build; exports no secrets) and `.env.example`
+  env contract.
+
+**Local verification:** `pnpm install --frozen-lockfile` clean + `pnpm turbo typecheck lint test build --force`
+= **20/20 tasks green**. No secrets in the commit (`.env`, `.claude/settings.local.json`, and all build
+artifacts are gitignored and confirmed absent).
+
+**Non-obvious decision — `ci.yml` / `version: 9` removed.** `pnpm/action-setup@v4` does a *strict* string
+compare between its `version:` input and the `packageManager` field in `package.json`. Turborepo 2.x requires
+a full-semver `packageManager` (`pnpm@9.15.9`), so `version: 9` made the action see two conflicting versions
+(`"9.15.9" !== "9"`) and fail with "Multiple versions of pnpm specified." Fix: deleted the `version: 9` input
+from both `action-setup` blocks, leaving the `packageManager` field as the single source of truth. **Rule going
+forward:** never pin a pnpm version in `action-setup` while `packageManager` is set — let `packageManager` win.
+
+**Operator handoff (requires tools not available in the build shell — `gh`/`flyctl`/`docker`):**
+
+1. Push: `git push -u origin phase-0-scaffold` (done by Claude Code when authorized).
+2. Open PR + wait for the CI gate to go green (DEPLOY.md §5).
+3. `fly apps create hermes2 && fly secrets import < .env && fly deploy` (DEPLOY.md §1–4).
+
+**Phase 0 acceptance items still pending operator action:** "PR green" (needs the push + Actions run) and
+"Fly URL responds" (needs `fly deploy`). Do not open Phase 1 until this CI gate is green.

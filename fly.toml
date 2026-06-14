@@ -1,0 +1,46 @@
+# =============================================================================
+# Hermes 2.0 — Fly.io app config (Fly Machines, deployed from the Dockerfile).
+#
+# Schema verified against the current Fly docs (June 2026):
+#   - https://fly.io/docs/reference/configuration/
+#   - https://fly.io/docs/launch/autostop-autostart/
+#
+# Notes that matter for THIS app:
+#   * auto_stop_machines takes a STRING now ("off" | "stop" | "suspend"),
+#     not a bool. ("stop" == legacy true, "off" == legacy false.)
+#   * min_machines_running lives INSIDE [http_service] and only takes effect
+#     when auto_stop_machines is "stop" or "suspend". We keep it at 1 so Fly
+#     always leaves one Machine warm in the primary region — the Inngest cron
+#     scheduler must never be fully scaled to zero (CLAUDE.md §7, PROJECT_PLAN
+#     §6). With min_machines_running = 1, the proxy will autostop *excess*
+#     Machines but will not stop below this floor.
+#   * The container binds 0.0.0.0:3000 (Dockerfile sets HOSTNAME/PORT); the Fly
+#     proxy terminates TLS and forwards to internal_port = 3000.
+# =============================================================================
+
+app = "hermes2"
+primary_region = "iad"   # US East (Ashburn, VA) — close to Neon US East + low US latency.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[vm]]
+  size = "shared-cpu-1x"
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"

@@ -1,0 +1,22 @@
+{
+  "name": "hermes2",
+  "private": true,
+  "scripts": {
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "format": "prettier --check .",
+    "format:write": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "eslint": "9.39.4",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.8.4",
+    "turbo": "2.9.18",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.61.0"
+  },
+  "packageManager": "pnpm@9.15.9"
+}

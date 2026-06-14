@@ -5,3 +5,4 @@
 export * from "./schema/index.js";
 export * from "./directives.js";
 export * from "./client.js";
+export * from "./orm.js";

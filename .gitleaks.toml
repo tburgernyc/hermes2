@@ -2,6 +2,7 @@
 # contain THROWAWAY, non-production test credentials only:
 #   - apps/web/e2e/*           Playwright fixtures (test admin/vendor passwords, a base32 TOTP test vector)
 #   - apps/web/playwright.config.ts  test-only default secrets for the local/CI auth e2e run
+#   - packages/inngest/test/*  a deterministic throwaway TOKEN_SIGNING_SECRET for the logic suite
 #   - the deterministic test-env values in .github/workflows/ci.yml's web-e2e job
 #
 # Real secrets are NEVER committed: production secrets live in `fly secrets`, CI secrets are GitHub
@@ -16,9 +17,11 @@ description = "Throwaway test credentials only — never real secrets."
 paths = [
   '''apps/web/e2e/.*''',
   '''apps/web/playwright\.config\.ts''',
+  '''packages/inngest/test/.*''',
 ]
 regexes = [
   '''00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff''',
   '''e2e-ci-auth-secret-[0-9a-f]+''',
   '''e2e-ci-token-signing-secret-[0-9a-f]+''',
+  '''inngest-test-token-signing-secret-[0-9]+''',
 ]

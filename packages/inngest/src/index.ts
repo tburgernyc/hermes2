@@ -5,3 +5,5 @@
  */
 export * from "./client.js";
 export * from "./safety.js";
+export * from "./logic.js";
+export * from "./functions.js";

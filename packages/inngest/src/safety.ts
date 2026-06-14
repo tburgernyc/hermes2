@@ -33,15 +33,31 @@ export function assertSafeUrl(url: string): URL {
   return u;
 }
 
-export async function safeFetchDocument(
-  url: string,
-  opts: { maxBytes?: number; allowedTypes?: string[] } = {},
-): Promise<{ bytes: Uint8Array; contentType: string }> {
+export interface FetchOptions {
+  maxBytes?: number;
+  allowedTypes?: string[];
+  /** Some sources (USASpending award search) require POST with a JSON body. Default GET. */
+  method?: "GET" | "POST";
+  body?: string;
+  headers?: Record<string, string>;
+}
+
+export interface FetchResult {
+  bytes: Uint8Array;
+  contentType: string;
+}
+
+export async function safeFetchDocument(url: string, opts: FetchOptions = {}): Promise<FetchResult> {
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
   assertSafeUrl(url);
 
   // redirect: "error" stops a 3xx from bouncing us off the allowlist toward an internal target.
-  const res = await fetch(url, { redirect: "error" });
+  const res = await fetch(url, {
+    method: opts.method ?? "GET",
+    body: opts.body,
+    headers: opts.headers,
+    redirect: "error",
+  });
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
 
   const contentType = res.headers.get("content-type") ?? "application/octet-stream";

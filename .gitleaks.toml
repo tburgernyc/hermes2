@@ -1,0 +1,24 @@
+# gitleaks configuration. Extends the default ruleset and allowlists files/values that intentionally
+# contain THROWAWAY, non-production test credentials only:
+#   - apps/web/e2e/*           Playwright fixtures (test admin/vendor passwords, a base32 TOTP test vector)
+#   - apps/web/playwright.config.ts  test-only default secrets for the local/CI auth e2e run
+#   - the deterministic test-env values in .github/workflows/ci.yml's web-e2e job
+#
+# Real secrets are NEVER committed: production secrets live in `fly secrets`, CI secrets are GitHub
+# Actions secrets referenced as ${{ secrets.* }}, and local secrets live in a gitignored `.env`.
+title = "hermes2"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Throwaway test credentials only — never real secrets."
+paths = [
+  '''apps/web/e2e/.*''',
+  '''apps/web/playwright\.config\.ts''',
+]
+regexes = [
+  '''00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff''',
+  '''e2e-ci-auth-secret-[0-9a-f]+''',
+  '''e2e-ci-token-signing-secret-[0-9a-f]+''',
+]

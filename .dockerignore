@@ -1,0 +1,36 @@
+# Keep the build context small and reproducible.
+# (The container builds from the lockfile, not from local installs/builds.)
+
+# Dependencies — reinstalled from pnpm-lock.yaml inside the image.
+**/node_modules
+
+# Build / cache output — regenerated in the image.
+**/.next
+**/.turbo
+**/dist
+**/coverage
+**/*.tsbuildinfo
+
+# VCS + local tooling.
+.git
+.gitignore
+.github
+
+# Secrets / env — never bake into an image. (.env.example is allowed.)
+.env
+.env.*
+!.env.example
+
+# Editor / OS cruft.
+.DS_Store
+.vscode
+.idea
+**/*.log
+
+# Docs / tests not needed at runtime build.
+e2e
+*.md
+
+# Docker files themselves.
+Dockerfile
+.dockerignore

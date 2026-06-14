@@ -225,6 +225,66 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 4 — Inngest Autonomous Jobs + Human Gates — **CODE COMPLETE** (2026-06-14)
+
+**What shipped** (branch `phase-4-inngest`, off `main @ 9c6a24e`):
+
+- **`packages/inngest`** (`@hermes/inngest`): `client.ts` (typed `HermesEvents` registry; `outreach.queued`
+  ARMS the gate and is autonomous, the three human-gate events `sourcing.approved`/`outreach.approved`/
+  `outreach.rejected` are emitted ONLY by the admin surface), `safety.ts` (`assertSafeUrl` +
+  `safeFetchDocument` SSRF guard — https-only/host-allowlist/no-private-IP/`redirect:"error"`/size+type caps,
+  now with optional POST for USASpending — and `writeAudit`), `logic.ts` (the deps-injected, DB-testable job
+  logic), `functions.ts` (thin durable wrappers + the gate).
+- **The gate (Prime Directive §2):** `outreachGateFn` parks on
+  `step.waitForEvent("hermes/outreach.approved", {timeout:"14d", match:"data.outreachId"})` — physically
+  cannot send before the human event. `sendOutreach` ALSO refuses any campaign that isn't `APPROVED` with a
+  recorded approver (code-level gate), and the Phase-1 DB CHECKs are the third layer. Tokens are minted ONLY
+  at send time (post-approval) and stored as **hashes** (the schema has no raw-token column by design).
+- **Crons (ET):** `samScan` 7/11/15/19h (ingest 541xxx → emit `solicitation.ingested`); `triageFn`
+  → `TRIAGE_COMPLETE` **with zero outreach + no email** (fail-closed → no advance); `onSourcingApprovedFn`
+  (drafts `PENDING_APPROVAL` outreach, arms the gate, no send); `quoteDetectorFn` */15m → `PRICING_PENDING`;
+  `usaspendingFn` q6h; `deadlineFn` 7:30; `arFn` 17:00; `morningBriefFn` 8:30 (internal operator digest);
+  `heartbeatFn` */10m (external dead-man's-switch). Served at `apps/web/app/api/inngest/route.ts`.
+- **`packages/emails`** (now real): React Email `OutreachEmail` (autoescaped + signed quote/opt-out links +
+  CAN-SPAM footer) + `MorningBrief`, lazy Resend `sendOutreachEmail`/`sendBriefEmail`. Deps: react 19.2.7,
+  react-dom, @react-email/components 1.0.12, @react-email/render 2.0.8, resend 6.12.4.
+- **`apps/web/app/admin/approvals`** (minimal — full console is Phase 6): the ONLY human-gate emitter —
+  `approveSourcing`/`approveOutreach`/`rejectOutreach` server actions (requireAdmin + Next CSRF; set
+  `*_approved_by/at` + audit, then `inngest.send`).
+- **Tests (15 + 1 in emails):** SSRF unit (no network), gate-wiring (registry, no DB), and the DB-backed
+  acceptance suite (mocked AI/Resend, owner-DSN rollback harness): triage→TRIAGE_COMPLETE zero-email,
+  fail-closed no-advance, draft-only no-send, **send REFUSED without approval** + sends once approved,
+  rankQuotes→PRICING_PENDING, audit actor_type. Emails autoescaping test. New secret-free CI **`inngest`**
+  job (pgvector pg16 → migrate+seed → build deps → suite; REQUIRE_DB=1; no ANTHROPIC/RESEND key).
+
+**Non-obvious decisions / footguns:**
+- **pnpm dual-drizzle hazard:** `inngest` → `@opentelemetry/api` shifts drizzle-orm's optional-peer
+  resolution hash, so a consumer with its own `drizzle-orm` dep resolves a SECOND physical copy whose
+  `SQL<unknown>` is nominally incompatible with `@hermes/db`'s table types ("separate declarations of a
+  private property 'shouldInlineParams'"). Fix: `@hermes/db` now re-exports the drizzle operator surface
+  (`packages/db/src/orm.ts`); consumers import `eq`/`and`/`sql`/… from **`@hermes/db`**, never `drizzle-orm`,
+  and `@hermes/inngest` dropped its direct `drizzle-orm` dep. **Rule going forward:** in any package that
+  consumes `@hermes/db` tables, import drizzle operators from `@hermes/db`.
+- Tokens minted at SEND (not draft) because the schema stores only hashes — deviates from the original plan
+  §A3 (which predated the schema reconciliation) for security/schema-fit.
+- Triage NEVER auto-sets `NO_GO` (recommendation-only); the AI's coarse boolean `zeroFloatFit` maps onto the
+  graded DB enum via feasibility bands; AI `naics`/`contractType` are validated before write (bad values →
+  null, never a CHECK failure → rollback).
+- Crons iterate `HERMES_ACTIVE_ORG_IDS` (comma-separated UUIDs) — refines the plan's "slugs" because a
+  slug→id lookup needs the deferred scheduler read-role (hermes_app RLS can't list orgs cross-tenant).
+- `@hermes/emails` needed `@types/node` explicitly (no transitive `@types/pg` to pull it); jsx `react-jsx` +
+  `DOM` lib in its tsconfig.
+
+**Verification:** `pnpm turbo typecheck lint build` = 18/18; `@hermes/inngest` 15/15 + `@hermes/emails` 1/1
+vs Neon. Web build emits `/api/inngest` + `/admin/approvals`.
+
+**Operator follow-ups (still open):** set runtime secrets in `fly secrets` — `INNGEST_EVENT_KEY`/
+`INNGEST_SIGNING_KEY`, `RESEND_API_KEY`, `SAM_API_KEY`, `HEARTBEAT_URL`, `OUTREACH_POSTAL_ADDRESS`,
+`HERMES_ACTIVE_ORG_IDS` (resolve the seeded org's id), `APP_BASE_URL`; create the Inngest app + register the
+`/api/inngest` URL; verify burgergov.com Resend DKIM/SPF; add **`inngest`** to branch-protection required
+checks (keep `db`/`web-e2e`, NOT `db-acceptance`). `ANTHROPIC_API_KEY` stays out of the Claude Code shell
+(§4). **Phase 5** (tokenized `/quote` + `/optout` + vendor portal) starts off `main` once this PR merges.
+
 ### Phase 3 — AI Orchestration Engine — **CODE COMPLETE** (2026-06-14)
 
 **What shipped** (branch `phase-3-ai`, off `phase-2-auth`; PR stacked on #3 — merge #3 first):

@@ -90,6 +90,61 @@ jobs:
       - name: Schema + negative + RLS suite
         run: pnpm --filter @hermes/db test
 
+  # Inngest logic integration: the DB-backed acceptance suite for the autonomous jobs + human-approval
+  # gate (zero-email-until-approval, fail-closed no-advance, gated send, audit rows) plus the SSRF +
+  # gate-wiring units. AI and Resend are MOCKED, so this is secret-free (no ANTHROPIC_API_KEY /
+  # RESEND_API_KEY — CLAUDE.md §4) and runs on every PR, including forks.
+  inngest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Owner DSN for migrate/seed AND for the logic suite (it runs as owner so fixtures bypass RLS, the
+      # same way the `db` job does). The logic's explicit org_id filters still scope every query.
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@localhost:5432/postgres
+      # Make a missing DSN FATAL (setup.ts throws on REQUIRE_DB && !HAS_DB): no silent skip to false green.
+      REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrate (extensions → roles → tables → guards → grants)
+        run: pnpm --filter @hermes/db db:migrate
+
+      - name: Seed (idempotent)
+        run: pnpm --filter @hermes/db db:seed
+
+      # Build @hermes/inngest + its upstream deps (turbo `build` dependsOn ^build), so the suite imports
+      # the built @hermes/db/ai/core/emails dist. Then run the package's vitest directly (same STRICT-env
+      # reasoning as the `db` job — turbo would otherwise strip the DSN vars and flip HAS_DB to false).
+      - name: Build workspace deps
+        run: pnpm turbo build --filter=@hermes/inngest
+
+      - name: Inngest logic + SSRF + gate suite
+        run: pnpm --filter @hermes/inngest test
+
   # Auth-boundary e2e: build the app and run the Playwright auth suite against a clean pgvector
   # container. Secret-free (Phase 2 makes NO AI calls, so ANTHROPIC_API_KEY is deliberately absent —
   # CLAUDE.md §4). The suite's global-setup migrates the DB and seeds its own admin/vendor fixtures.

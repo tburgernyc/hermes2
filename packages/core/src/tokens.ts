@@ -35,6 +35,16 @@ function secret(): string {
 const b64url = (buf: Buffer): string => buf.toString("base64url");
 const sign = (body: string): string => b64url(createHmac("sha256", secret()).update(body).digest());
 
+/**
+ * Stable HMAC-SHA-256 hash of a minted token (keyed by TOKEN_SIGNING_SECRET), hex. Stored on the
+ * outreach campaign so it can be located/revoked by its token WITHOUT ever persisting the raw token
+ * (CLAUDE.md §7). The schema has no raw-token column by design; the live token reaches the vendor only
+ * in the sent email and is validated statelessly by verifyToken.
+ */
+export function hashToken(token: string): string {
+  return createHmac("sha256", secret()).update(token).digest("hex");
+}
+
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
   const bb = Buffer.from(b);

@@ -69,3 +69,21 @@ export async function withAuthRole<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
     return fn(tx);
   });
 }
+
+/**
+ * Run `fn` inside a transaction elevated to the low-trust `hermes_token` role with the tenant context
+ * set to `orgId` — the tokenized public-submission path (/quote, /optout). Unlike withAuthRole, this
+ * path HAS an org (the signed token carries it), so it sets `app.current_org_id` (bind-safe, via
+ * set_config) AND switches role. The org context is set FIRST (as hermes_app), then the role is dropped
+ * to hermes_token; the RESTRICTIVE token RLS policies (migration 0003) then force every write to be
+ * prospect-scoped — a token can never create or overwrite a vetted vendor (CLAUDE.md §7). Requires the
+ * hermes_app→hermes_token membership from migration 0006. SET LOCAL ROLE is transaction-scoped. The role
+ * name is a fixed literal — never user input — so interpolation is safe.
+ */
+export async function withTokenRole<T>(orgId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return getDb().transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('app.current_org_id', ${orgId}, true)`);
+    await tx.execute(sql`SET LOCAL ROLE hermes_token`);
+    return fn(tx);
+  });
+}

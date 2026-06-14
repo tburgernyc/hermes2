@@ -8,6 +8,7 @@
  *   4. manual/0003_guards.sql       triggers + RLS policies
  *   5. manual/0004_grants.sql       grants + audit REVOKE + token scoping
  *   6. manual/0005_auth.sql         hermes_auth role (cross-tenant login lookup, least-privilege)
+ *   7. manual/0006_token_role.sql   hermes_token ← hermes_app membership (tokenized-submission path)
  *
  * Every manual step is idempotent, so re-running is safe.
  */
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
     await runManual(pool, "0003_guards.sql");
     await runManual(pool, "0004_grants.sql");
     await runManual(pool, "0005_auth.sql");
+    await runManual(pool, "0006_token_role.sql");
     process.stdout.write("✓ migrations complete\n");
   } finally {
     await pool.end();

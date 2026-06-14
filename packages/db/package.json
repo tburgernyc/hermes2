@@ -15,10 +15,22 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/migrate.ts",
+    "db:seed": "tsx src/seed.ts"
   },
   "devDependencies": {
+    "@types/pg": "8.20.0",
+    "drizzle-kit": "0.31.10",
+    "tsx": "4.22.4",
     "typescript": "5.9.3",
     "vitest": "4.1.8"
+  },
+  "dependencies": {
+    "dotenv": "17.4.2",
+    "drizzle-orm": "0.45.2",
+    "pg": "8.21.0",
+    "zod": "4.4.3"
   }
 }

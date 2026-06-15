@@ -15,6 +15,8 @@ const BASE_URL = `http://localhost:${PORT}`;
 process.env.TOTP_ENCRYPTION_KEY ??= Buffer.alloc(32, 9).toString("base64");
 process.env.AUTH_SECRET ??= "e2e-auth-secret-please-change-0123456789";
 process.env.TOKEN_SIGNING_SECRET ??= "e2e-token-signing-secret-0123456789abcd";
+// No Tigris in e2e/CI: the tokenized upload path uses the in-memory storage driver (explicit opt-in).
+process.env.STORAGE_DRIVER ??= "memory";
 process.env.AUTH_URL = BASE_URL;
 
 // The app under test connects with the migration-owner DSN for e2e.

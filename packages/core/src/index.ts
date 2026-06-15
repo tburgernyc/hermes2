@@ -10,3 +10,5 @@ export * from "./totp.js";
 export * from "./csrf.js";
 export * from "./tokens.js";
 export * from "./auth-users.js";
+export * from "./upload.js";
+export * from "./storage.js";

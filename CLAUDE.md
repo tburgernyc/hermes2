@@ -225,6 +225,68 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 5 — Tokenized Submission Boundary (vendor portal core) — **CODE COMPLETE** (2026-06-15)
+
+**What shipped** (branch `phase-5-portal`, off `main @ 88f53e9`):
+
+- **B1 — DB trust-boundary wiring** (`@hermes/db`): `withTokenRole(orgId, fn)` (`client.ts`) sets the org GUC
+  then `SET LOCAL ROLE hermes_token`; migration `0006_token_role.sql` (`GRANT hermes_token TO hermes_app
+  WITH INHERIT FALSE`) lets the app role elevate. `negative.token-role.test.ts` asserts the membership.
+- **B2 — upload + storage** (`@hermes/core`): `upload.ts` = pure, AWS-free `validateUpload(bytes)` (magic
+  bytes `%PDF`/`PK\x03\x04`, 25 MB cap, sha256, fail-closed — rejects by CONTENT not extension) + `sha256Hex`
+  + `contentTypeFor`; `storage.ts` = `getStorage()` driver selector — Tigris (`@aws-sdk/client-s3` +
+  `s3-request-presigner`, new deps) when `TIGRIS_BUCKET` set, explicit `STORAGE_DRIVER=memory` for dev/e2e,
+  else throws (fail-closed). 8 upload unit tests.
+- **B3 — tokenized public pages** (`apps/web`, NOT under the `/admin|/portal` middleware matcher):
+  `quote/[token]` + `optout/[token]` (`runtime=nodejs`, `force-dynamic`, best-effort rate-limited). The
+  `submitQuote` server action re-verifies the signed `QUOTE_SUBMISSION` token server-side, takes
+  org/prospect/solicitation ONLY from the verified payload, **generates the quote UUID app-side** (no
+  `RETURNING` — the token role has INSERT-but-not-SELECT on `vendor_quotes`), `validateUpload`s the file,
+  stores it, then writes `vendor_quotes` (**`vendor_id` ALWAYS null**, `token_jti` replay guard) + line
+  items + a `VENDOR_PROSPECT` document + a `TOKEN` audit row in ONE `withTokenRole` transaction, and emits
+  `hermes/quote.submitted`. Outcome surfaced via redirect status (no JS). `optOut` verifies `OPT_OUT` →
+  `withTokenRole` UPDATE prospect → `OPTED_OUT` + audit. `vendor_id`/`orgId` are NEVER read from the client.
+- **B5 — tests**: DB negatives (`negative.token-submission.test.ts` — `(org_id, token_jti)` replay → 23505;
+  token CAN append but not modify `audit_log`; line-item insert succeeds under the token role) + Playwright
+  `quote.spec.ts` (submit → assert prospect-scoped quote `vendor_id` NULL + `VENDOR_PROSPECT` doc + `TOKEN`
+  audit; replay blocked; opt-out flips `OPTED_OUT`; a quote token is rejected on the opt-out route).
+
+**Three real bugs caught by the tests (not style):**
+- **`audit_log_attributable` CHECK** requires a non-SYSTEM actor to carry `actor_user_id` OR `actor_email`.
+  Every opt-out (no email set) and every email-less quote would have rolled back. Fix: TOKEN audits use the
+  prospect email when known, else ``token-jti:${jti}`` — never null.
+- **`SECURITY DEFINER` gap** (migration `0008_line_item_trigger_definer.sql`): the BEFORE-INSERT
+  `sync_line_item_contract_type` trigger reads `vendor_quotes`, which the token role can't SELECT (the
+  "blind write"). Promoted the trigger fn to `SECURITY DEFINER SET search_path=public,pg_temp`. `migrate.ts`
+  now ASSERTS `prosecdef` after the run (any future migration that drops the flag fails loudly).
+- **drizzle wraps the pg error in `.cause`**: `isUniqueViolation` only read `err.code`, so a replay fell
+  through to a generic error instead of "duplicate". Fixed with a `pgErrorCode` unwrapper.
+
+**Migration `0007_token_audit.sql`**: `GRANT INSERT ON audit_log TO hermes_token` (append-only — RLS +
+immutability triggers + no UPDATE/DELETE) so the §7 audit row is written atomically with a tokenized write.
+
+**B4 (vendor ACCOUNT portal) — DEFERRED to a later phase (operator decision).** The `users` table has no
+link to a vetted `vendors` row, so the logged-in quote path (`vendor_id` set) and "my quotes" can't be built
+without a **user↔vendor vetting linkage** — that belongs to the vendor-vetting/promotion flow (Phase 6+).
+Phase 5 shipped the fully-tested tokenized PUBLIC boundary instead; the account portal is a clean follow-on
+once the linkage exists.
+
+**Adversarial review** (workflow: security/database/typescript/prime-directive reviewers + per-finding
+verification): 0 CRITICAL/HIGH survived; 3 refuted (token-length "timing leak" on a public token; documented
+per-process limiter; XSS-safe JSX `scopeText`). 4 confirmed MEDIUM/LOW, all fixed: rate-limit now prefers
+`Fly-Client-IP` then RIGHTMOST `X-Forwarded-For` (leftmost is client-spoofable on Fly); the `prosecdef`
+assertion above; safe `err instanceof Error` narrowing; `optOut` no longer swallows unexpected errors.
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/core` 25/25, `@hermes/db` 127/127,
+`@hermes/inngest` 15/15 vs Neon; Playwright e2e 7/7 (4 auth + 3 tokenized). No `ci.yml` change needed — the
+new tests are auto-discovered by the existing `build`/`db`/`web-e2e`/`db-acceptance` jobs; `db:migrate` now
+applies 0006–0008.
+
+**Operator follow-ups (still open):** set `TIGRIS_*` runtime secrets in `fly secrets` (prod object storage;
+e2e/CI use the memory driver); confirm the `hermes_app`→`hermes_token` + `hermes_app`→`hermes_auth`
+membership grants applied; keep `db`/`web-e2e` (NOT `db-acceptance`) as branch-protection required checks.
+**Phase 6+ prerequisite:** add a `users`↔`vendors` vetting linkage before building the vendor account portal.
+
 ### Phase 4 — Inngest Autonomous Jobs + Human Gates — **CODE COMPLETE** (2026-06-14)
 
 **What shipped** (branch `phase-4-inngest`, off `main @ 9c6a24e`):

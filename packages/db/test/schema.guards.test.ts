@@ -31,6 +31,10 @@ const EXPECTED_TRIGGER_FUNC: Record<string, string> = {
   "solicitations.solicitations_submit_guard": "solicitation_submit_guard",
 };
 
+// The vendor-facing tables that carry a per-vendor (hermes_vendor) isolation pair (0009_vendor_role.sql):
+// a PERMISSIVE _vendor_org (org scope) + a RESTRICTIVE _vendor_scope (own-vendor scope).
+const VENDOR_SCOPED_TABLES = ["vendors", "vendor_quotes", "proposals", "contracts", "documents"];
+
 const EXPECTED_POLICIES = new Set<string>([
   ...EXPECTED_TABLES.map((t) => `${t}.${t}_tenant_isolation`),
   "vendor_quotes.vendor_quotes_token_prospect_only",
@@ -38,11 +42,14 @@ const EXPECTED_POLICIES = new Set<string>([
   // hermes_auth least-privilege login path (0005_auth.sql): read any user, write lockout only.
   "users.users_auth_select",
   "users.users_auth_lockout",
+  // hermes_vendor per-vendor isolation (0009_vendor_role.sql).
+  ...VENDOR_SCOPED_TABLES.flatMap((t) => [`${t}.${t}_vendor_org`, `${t}.${t}_vendor_scope`]),
 ]);
 
 const RESTRICTIVE_POLICIES = new Set<string>([
   "vendor_quotes.vendor_quotes_token_prospect_only",
   "documents.documents_token_prospect_only",
+  ...VENDOR_SCOPED_TABLES.map((t) => `${t}.${t}_vendor_scope`),
 ]);
 
 interface PrivRow {
@@ -60,6 +67,12 @@ interface PrivRow {
   token_audit_update: boolean;
   token_audit_delete: boolean;
   token_proposals_insert: boolean;
+  // hermes_vendor: a read-only vendor-facing surface (0009); writes are Phase 6.
+  vendor_quote_select: boolean;
+  vendor_quote_insert: boolean;
+  vendor_vendors_select: boolean;
+  vendor_users_select: boolean;
+  vendor_prospects_select: boolean;
 }
 
 d("guards: triggers, RLS, policies, roles, grants", () => {
@@ -118,7 +131,7 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
         rolsuper: boolean;
       }>(
         `SELECT rolname, rolcanlogin, rolbypassrls, rolsuper
-         FROM pg_roles WHERE rolname IN ('hermes_app', 'hermes_token', 'hermes_auth')`,
+         FROM pg_roles WHERE rolname IN ('hermes_app', 'hermes_token', 'hermes_auth', 'hermes_vendor')`,
       );
       for (const r of rl.rows) {
         roles.set(r.rolname, {
@@ -143,7 +156,12 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
            has_table_privilege('hermes_token','audit_log','INSERT')        AS token_audit_insert,
            has_table_privilege('hermes_token','audit_log','UPDATE')        AS token_audit_update,
            has_table_privilege('hermes_token','audit_log','DELETE')        AS token_audit_delete,
-           has_table_privilege('hermes_token','proposals','INSERT')        AS token_proposals_insert`,
+           has_table_privilege('hermes_token','proposals','INSERT')        AS token_proposals_insert,
+           has_table_privilege('hermes_vendor','vendor_quotes','SELECT')   AS vendor_quote_select,
+           has_table_privilege('hermes_vendor','vendor_quotes','INSERT')   AS vendor_quote_insert,
+           has_table_privilege('hermes_vendor','vendors','SELECT')         AS vendor_vendors_select,
+           has_table_privilege('hermes_vendor','users','SELECT')           AS vendor_users_select,
+           has_table_privilege('hermes_vendor','vendor_prospects','SELECT') AS vendor_prospects_select`,
       );
       privs = pr.rows[0];
     } finally {
@@ -190,7 +208,7 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
   });
 
   it("creates non-owner roles with no login / no BYPASSRLS / no superuser", () => {
-    for (const name of ["hermes_app", "hermes_token", "hermes_auth"]) {
+    for (const name of ["hermes_app", "hermes_token", "hermes_auth", "hermes_vendor"]) {
       const r = roles.get(name);
       expect(r, `role ${name}`).toBeDefined();
       expect(r?.canLogin, `${name} canLogin`).toBe(false);
@@ -218,5 +236,16 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     expect(privs?.token_audit_update).toBe(false);
     expect(privs?.token_audit_delete).toBe(false);
     expect(privs?.token_proposals_insert).toBe(false);
+  });
+
+  it("grants: hermes_vendor has a read-only vendor surface, no users/prospects access, no writes", () => {
+    expect(privs).toBeDefined();
+    expect(privs?.vendor_quote_select).toBe(true); // reads its own quotes (RLS-narrowed per vendor)
+    expect(privs?.vendor_vendors_select).toBe(true); // reads its own vendor row
+    // Writes (logged-in quote submit, doc upload) are Phase-6 — no INSERT yet.
+    expect(privs?.vendor_quote_insert).toBe(false);
+    // A vendor role can never read the users table (the link/identity) or other firms' prospects.
+    expect(privs?.vendor_users_select).toBe(false);
+    expect(privs?.vendor_prospects_select).toBe(false);
   });
 });

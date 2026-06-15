@@ -60,6 +60,13 @@ export const users = pgTable(
     email: text("email").notNull(),
     passwordHash: text("password_hash"), // argon2id; required for admins (CHECK)
     role: userRole("role").notNull().default("VENDOR"),
+    /**
+     * Link to the vetted vendor this user represents (vendor-account portal). NULL for admins and for
+     * not-yet-linked vendor users. Set ONLY by an admin action (never self-asserted) — mirrors the §7
+     * trust boundary. The composite (org_id, vendor_id) FK is added in manual migration 0009 (declaring
+     * it here would create a users↔vendors import cycle); the role CHECK below keeps admins unlinkable.
+     */
+    vendorId: uuid("vendor_id"),
     /** AES-256-GCM ciphertext (never plaintext). Admin enrollment enforced at the app layer. */
     totpSecretCiphertext: text("totp_secret_ciphertext"),
     totpEnrolledAt: timestamp("totp_enrolled_at", { withTimezone: true, mode: "date" }),
@@ -72,10 +79,13 @@ export const users = pgTable(
     unique("users_org_id_id_key").on(t.orgId, t.id),
     uniqueIndex("users_email_lower_key").on(sql`lower(${t.email})`),
     index("users_org_idx").on(t.orgId),
+    index("users_vendor_idx").on(t.vendorId).where(sql`${t.vendorId} IS NOT NULL`),
     check(
       "users_admin_requires_password",
       sql`${t.role} <> 'ADMIN' OR ${t.passwordHash} IS NOT NULL`,
     ),
+    // Only a VENDOR-role user may carry a vendor link; an admin row can never be vendor-bound.
+    check("users_vendor_link_role", sql`${t.vendorId} IS NULL OR ${t.role} = 'VENDOR'`),
   ],
 );
 

@@ -225,6 +225,56 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 prerequisite (PR C) — users↔vendors vetting linkage — **CODE COMPLETE** (2026-06-15)
+
+The unblocked, counsel-independent prerequisite for the Phase-6 vendor portal + approval queue: a trusted
+path from a logged-in `VENDOR` user to a vetted `vendors` row, with structural per-vendor isolation.
+
+**What shipped** (branch `phase-6-prereq-vendor-link`, off `main @ 37893dd`):
+- **Schema link** (`schema/tenancy.ts` + generated `0001_broken_paladin.sql`): `users.vendor_id` nullable;
+  CHECK `users_vendor_link_role` (`vendor_id IS NULL OR role='VENDOR'` — admins are unlinkable); partial
+  `users_vendor_idx`. The composite `(org_id,vendor_id)→vendors` FK lives in **manual `0009`** (declaring it
+  in `tenancy.ts` would create a users↔vendors import cycle).
+- **`hermes_vendor` role + per-vendor RLS** (`manual/0009_vendor_role.sql`): a 4th least-privilege NOLOGIN
+  role (`GRANT … TO hermes_app WITH INHERIT FALSE`, mirrors `hermes_token`). Org-scoped RLS gives ZERO
+  isolation between two vendors in one org (their quote pricing is competitively sensitive), so each
+  vendor-facing table (`vendors`/`vendor_quotes`/`proposals`/`contracts`/`documents`) gets a **PERMISSIVE
+  `_vendor_org`** (org GUC) **+ a RESTRICTIVE `_vendor_scope`** (vendor key = `app.current_vendor_id` GUC).
+  Grants are **SELECT-only and exactly the 5 policy-backed tables** (no dead grants). `client.withVendorRole
+  (orgId, vendorId, fn)` sets both GUCs as hermes_app then `SET LOCAL ROLE hermes_vendor`.
+- **Session threading**: `vendorId` added to `TokenClaims` + the 3 `next-auth.d.ts` augmentations +
+  `AUTH_COLUMNS`/`AuthUser`; resolved **server-side only** at login (free — `hermes_auth` already has SELECT
+  on users) and re-synced on the TOTP `update` trigger; `requireVendorWithVendorId()` guard (403s an
+  unlinked vendor). `vendorId` is NEVER client-set (mirrors the §7 totpVerified pattern).
+- **Admin establishment** (`app/admin/vendors/{actions,page}.tsx`): `promoteProspectToVendor` (creates the
+  `vendors` row + flips `prospect_status→PROMOTED` in app code — no trigger does it), `vetVendor`,
+  `linkVendorUser` (binds `users.vendor_id`, **`WHERE vendor_id IS NULL`** so it can't silently re-point an
+  existing link). All `requireAdmin → withOrg → ADMIN audit` — the ONLY way a link is established (§7).
+- **Tests**: `negative.vendor-role.test.ts` (8) — vendor A reads only its own quotes/vendor row (B invisible),
+  hermes_vendor can't read `users`/`vendor_prospects` or re-link itself, cross-tenant link blocked by the
+  composite FK (23503), admin can't be vendor-bound (23514), membership `INHERIT FALSE`. Drift guards updated
+  (column/CHECK/policy/role/grant set-equality). e2e: the seeded vendor user is linked, and login asserts the
+  portal shows the linked state (proves the full DB→session `vendorId` path).
+
+**Decisions** (operator-approved via AskUserQuestion): isolation = **structural `hermes_vendor` role + RLS**
+(not app-layer `WHERE`); scope = **link mechanism only** — `VENDOR_INVITE` onboarding + the portal read pages
+are **Phase 6**. `users.vendor_id` (1 vendor : N users); **invite-only**, no open self-registration.
+
+**Adversarial review** (4 reviewers → per-finding verification): **0 CRITICAL/HIGH**; 8 refuted; 8 confirmed
+MEDIUM/LOW, of which 4 fixed (the `isNull` re-link guard; removed 2 dead `orgs`/`solicitations` grants;
+guard-then-throw vs a non-null assertion; e2e link UPDATE `RETURNING`+assert) and 2 accepted (silent-void
+admin no-ops match the merged `approvals/actions.ts` convention + force-dynamic re-render; the `documents`
+`_vendor_scope` hides quote/contract docs — fail-closed, documented as the Phase-6 EXISTS-to-parent deferral).
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/db` **136/136** vs Neon (8 new vendor-role
+negatives + every drift guard); web e2e **7/7**. `migrate` runs `0001`+`0009` (prosecdef assertion intact).
+
+**Operator follow-ups:** confirm the `hermes_app→hermes_vendor` membership grant applied in prod; keep `db`/
+`web-e2e` as branch-protection required checks. **Phase 6 proper stays gated on the counsel engagement.**
+Phase-6 portal still-to-build: the `VENDOR_INVITE` token + `/portal/accept` onboarding, the logged-in
+`submitQuote` variant (vendor_id set via `withVendorRole`), and the "my quotes/contracts/documents" reads
+(incl. the EXISTS-to-parent `documents`/child-table policies + the `orgs`/`solicitations` RFQ read surface).
+
 ### Phase 5 — Tokenized Submission Boundary (vendor portal core) — **CODE COMPLETE** (2026-06-15)
 
 **What shipped** (branch `phase-5-portal`, off `main @ 88f53e9`):

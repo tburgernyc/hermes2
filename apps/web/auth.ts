@@ -47,6 +47,8 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
           email: user.email,
           orgId: user.orgId,
           role: toRole(user.role),
+          // Server-resolved from the DB link (users.vendor_id) — never client-supplied.
+          vendorId: user.vendorId,
           totpEnrolled: user.totpEnrolledAt !== null,
         };
       },
@@ -62,6 +64,7 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         claims.id = user.id;
         claims.orgId = user.orgId;
         claims.role = user.role;
+        claims.vendorId = user.vendorId ?? null; // server-resolved link; null until an admin binds it
         claims.totpEnrolled = Boolean(user.totpEnrolled);
         claims.totpVerified = false;
       }
@@ -83,6 +86,9 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         if (update.refreshEnrollment) {
           const u = await getAuthUserById(claims.orgId, claims.id);
           claims.totpEnrolled = Boolean(u?.totpEnrolledAt);
+          // Re-sync the vendor link too, so an admin-established link can propagate to a live session
+          // (a triggered session refresh) without forcing a full re-login.
+          claims.vendorId = u?.vendorId ?? null;
         }
       }
 

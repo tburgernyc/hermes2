@@ -26,8 +26,13 @@ const dsn = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL_UNPOO
 export const HAS_DB = Boolean(dsn && /^postgres(ql)?:\/\//.test(dsn));
 
 /** The non-owner runtime roles the schema's grants + RLS policies target. */
-export type RuntimeRole = "hermes_app" | "hermes_token" | "hermes_auth";
-const RUNTIME_ROLES: readonly RuntimeRole[] = ["hermes_app", "hermes_token", "hermes_auth"];
+export type RuntimeRole = "hermes_app" | "hermes_token" | "hermes_auth" | "hermes_vendor";
+const RUNTIME_ROLES: readonly RuntimeRole[] = [
+  "hermes_app",
+  "hermes_token",
+  "hermes_auth",
+  "hermes_vendor",
+];
 
 let poolSingleton: Pool | undefined;
 
@@ -89,6 +94,11 @@ export async function setOrgContext(client: PoolClient, orgId: string): Promise<
   await client.query("SELECT set_config('app.current_org_id', $1, true)", [orgId]);
 }
 
+/** Set the per-vendor RLS context (bind-safe; mirrors client.withVendorRole's second GUC). */
+export async function setVendorContext(client: PoolClient, vendorId: string): Promise<void> {
+  await client.query("SELECT set_config('app.current_vendor_id', $1, true)", [vendorId]);
+}
+
 /** Shape of the fields we read off node-postgres / Postgres errors. */
 export interface PgError extends Error {
   code?: string;
@@ -119,6 +129,7 @@ export async function capturePgError(fn: () => Promise<unknown>): Promise<PgErro
 export const PG = {
   CHECK_VIOLATION: "23514",
   UNIQUE_VIOLATION: "23505", // duplicate key (e.g. the (org_id, token_jti) quote replay guard)
+  FK_VIOLATION: "23503", // foreign_key_violation (e.g. a cross-tenant users→vendors link)
   INSUFFICIENT_PRIVILEGE: "42501", // covers both "permission denied" and RLS WITH CHECK failures
   RAISE_EXCEPTION: "P0001", // PL/pgSQL RAISE (audit immutability, solicitation submit guard)
 } as const;

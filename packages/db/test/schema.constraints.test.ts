@@ -15,6 +15,7 @@ const EXPECTED_CHECKS: string[] = [
   "orgs_cage_format",
   "orgs_ein_format",
   "users_admin_requires_password",
+  "users_vendor_link_role",
   "award_intel_amount_nonneg",
   "solicitations_feasibility_range",
   "solicitations_naics_format",
@@ -56,6 +57,7 @@ const EXPECTED_CHECKS: string[] = [
 // confdeltype: 'r' = RESTRICT, 'c' = CASCADE.
 const EXPECTED_FK_DELETE: Record<string, string> = {
   users_org_id_orgs_id_fk: "r",
+  users_vendor_fk: "r", // a user's vendor link can't dangle past a vendor (vendors are never hard-deleted)
   proposals_solicitation_fk: "r", // no history erasure
   vendor_quotes_solicitation_fk: "r",
   documents_quote_fk: "r", // legal/financial artifacts: never cascade-delete

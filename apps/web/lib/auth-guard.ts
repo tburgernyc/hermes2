@@ -23,11 +23,28 @@ export async function requireAdmin(): Promise<Session> {
   return session;
 }
 
-/** Vendor role, or 403. Use on every /portal action. */
+/** Vendor role, or 403. Use on the portal shell (pages that render for any vendor user). */
 export async function requireVendor(): Promise<Session> {
   const session = await requireSession();
   if (session.user.role !== "vendor") throw new AuthError(403, "Vendor access required");
   return session;
+}
+
+/**
+ * Vendor role AND a resolved vendor link, or 403 — the guard for every vendor-SCOPED read/write (the
+ * logged-in quote path, "my quotes/contracts/documents"). A VENDOR-role user whose `vendorId` is null
+ * is authenticated but not yet vetted/linked by an admin, and must NOT reach any vendor-scoped row.
+ * The returned `vendorId` is server-resolved (from the session linkage) — pass it to withVendorRole,
+ * never a client value (§7).
+ */
+export async function requireVendorWithVendorId(): Promise<{
+  session: Session;
+  vendorId: string;
+}> {
+  const session = await requireVendor();
+  const vendorId = session.user.vendorId;
+  if (!vendorId) throw new AuthError(403, "Vendor account is not yet linked");
+  return { session, vendorId };
 }
 
 /** Tenant isolation: throws unless the row's orgId matches the session's. */

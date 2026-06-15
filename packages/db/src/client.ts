@@ -87,3 +87,30 @@ export async function withTokenRole<T>(orgId: string, fn: (tx: Tx) => Promise<T>
     return fn(tx);
   });
 }
+
+/**
+ * Run `fn` inside a transaction elevated to the `hermes_vendor` role, scoped to BOTH the org and a
+ * single vendor — the authenticated vendor-account path (Phase-6 portal). Org-scoped RLS gives no
+ * isolation between two vendors in the same org, so this sets a SECOND context GUC,
+ * `app.current_vendor_id`, that the per-vendor RESTRICTIVE policies (migration 0009) AND-narrow every
+ * read to. Both GUCs are set as hermes_app FIRST (bind-safe set_config), THEN the role is dropped to
+ * hermes_vendor; SET LOCAL ROLE is transaction-scoped. Requires the hermes_app→hermes_vendor
+ * membership from 0009.
+ *
+ * SECURITY: `vendorId` must be the SERVER-resolved id from the session linkage (users.vendor_id),
+ * NEVER a client-supplied value — the same rule as the §7 tokenized path. The role name is a fixed
+ * literal. (Footgun: on a reused pooled conn the GUC reads as '' and ''::uuid ERRORS — fail-closed —
+ * so every hermes_vendor query MUST come through this helper, which always sets it.)
+ */
+export async function withVendorRole<T>(
+  orgId: string,
+  vendorId: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return getDb().transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('app.current_org_id', ${orgId}, true)`);
+    await tx.execute(sql`SELECT set_config('app.current_vendor_id', ${vendorId}, true)`);
+    await tx.execute(sql`SET LOCAL ROLE hermes_vendor`);
+    return fn(tx);
+  });
+}

@@ -31,6 +31,7 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
     { name: "email", udt: "text", nullable: false },
     { name: "password_hash", udt: "text", nullable: true },
     { name: "role", udt: "user_role", nullable: false },
+    { name: "vendor_id", udt: "uuid", nullable: true },
     { name: "totp_secret_ciphertext", udt: "text", nullable: true },
     { name: "totp_enrolled_at", udt: "timestamptz", nullable: true },
     { name: "failed_login_count", udt: "int4", nullable: false },

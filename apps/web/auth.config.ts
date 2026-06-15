@@ -10,6 +10,8 @@ export interface TokenClaims {
   id?: string;
   orgId?: string;
   role?: Role;
+  /** Server-resolved link to a vetted vendor (vendor portal). Set ONLY from the DB, never the client. */
+  vendorId?: string | null;
   totpVerified?: boolean;
   totpEnrolled?: boolean;
 }
@@ -32,6 +34,7 @@ export default {
         session.user.id = claims.id;
         session.user.orgId = claims.orgId ?? "";
         session.user.role = claims.role ?? "vendor";
+        session.user.vendorId = claims.vendorId ?? null;
         session.user.totpVerified = Boolean(claims.totpVerified);
         session.user.totpEnrolled = Boolean(claims.totpEnrolled);
       }

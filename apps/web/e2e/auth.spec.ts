@@ -30,6 +30,9 @@ test("vendor signs in, reaches /portal, and is blocked from /admin", async ({ pa
   await login(page, E2E_VENDOR_EMAIL, E2E_VENDOR_PASSWORD);
   await page.waitForURL(/\/portal$/);
   await expect(page.getByRole("heading", { name: "Subcontractor Portal" })).toBeVisible();
+  // PR-C linkage: the seeded vendor user is bound to a vetted vendor, so the session carries vendorId
+  // end-to-end (DB users.vendor_id → AUTH_COLUMNS → authorize → jwt → session → page).
+  await expect(page.getByTestId("vendor-link")).toContainText("Vendor account linked");
   // Middleware bounces a vendor away from the admin surface.
   await page.goto("/admin");
   await page.waitForURL(/\/portal$/);

@@ -19,6 +19,8 @@ export interface AuthUser {
   email: string;
   passwordHash: string | null;
   role: "ADMIN" | "VENDOR";
+  /** The vetted vendor this user is linked to (null for admins / not-yet-linked vendors). */
+  vendorId: string | null;
   totpSecretCiphertext: string | null;
   totpEnrolledAt: Date | null;
   failedLoginCount: number;
@@ -32,6 +34,8 @@ const AUTH_COLUMNS = {
   email: users.email,
   passwordHash: users.passwordHash,
   role: users.role,
+  // hermes_auth already has SELECT on every users column, so reading the link costs no new grant.
+  vendorId: users.vendorId,
   totpSecretCiphertext: users.totpSecretCiphertext,
   totpEnrolledAt: users.totpEnrolledAt,
   failedLoginCount: users.failedLoginCount,

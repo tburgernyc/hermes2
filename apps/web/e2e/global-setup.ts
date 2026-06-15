@@ -45,7 +45,7 @@ export default async function globalSetup(): Promise<void> {
     ]);
     const totpCiphertext = encryptSecret(E2E_ADMIN_TOTP_SECRET);
 
-    await pool.query(
+    const adminRow = await pool.query<{ id: string }>(
       `INSERT INTO users
          (org_id, email, role, password_hash, totp_secret_ciphertext, totp_enrolled_at, is_active)
        VALUES ($1, $2, 'ADMIN', $3, $4, now(), true)
@@ -53,9 +53,12 @@ export default async function globalSetup(): Promise<void> {
          password_hash = EXCLUDED.password_hash,
          totp_secret_ciphertext = EXCLUDED.totp_secret_ciphertext,
          totp_enrolled_at = EXCLUDED.totp_enrolled_at,
-         is_active = true, failed_login_count = 0, locked_until = NULL`,
+         is_active = true, failed_login_count = 0, locked_until = NULL
+       RETURNING id`,
       [orgId, E2E_ADMIN_EMAIL, adminHash, totpCiphertext],
     );
+    const adminId = adminRow.rows[0]?.id;
+    if (!adminId) throw new Error("e2e global-setup: failed to upsert admin");
 
     await pool.query(
       `INSERT INTO users (org_id, email, role, password_hash, is_active)
@@ -65,6 +68,30 @@ export default async function globalSetup(): Promise<void> {
          is_active = true, failed_login_count = 0, locked_until = NULL`,
       [orgId, E2E_VENDOR_EMAIL, vendorHash],
     );
+
+    // Link the seeded vendor user to a VETTED vendor so the login flow exercises the full
+    // DB → session vendorId path (the PR-C linkage). Idempotent: create the vendor once, then bind it.
+    await pool.query(
+      `INSERT INTO vendors (org_id, company_name, status, vetted_by, vetted_at)
+       SELECT $1, 'E2E Vendor Co', 'VETTED', $2, now()
+       WHERE NOT EXISTS (SELECT 1 FROM vendors WHERE org_id = $1 AND company_name = 'E2E Vendor Co')`,
+      [orgId, adminId],
+    );
+    const vendorRow = await pool.query<{ id: string }>(
+      `SELECT id FROM vendors WHERE org_id = $1 AND company_name = 'E2E Vendor Co' LIMIT 1`,
+      [orgId],
+    );
+    const vendorId = vendorRow.rows[0]?.id;
+    if (!vendorId) throw new Error("e2e global-setup: failed to upsert vendor");
+    const linkRow = await pool.query<{ id: string }>(
+      `UPDATE users SET vendor_id = $1
+       WHERE org_id = $2 AND lower(email) = lower($3) AND role = 'VENDOR'
+       RETURNING id`,
+      [vendorId, orgId, E2E_VENDOR_EMAIL],
+    );
+    if (!linkRow.rows[0]?.id) {
+      throw new Error("e2e global-setup: failed to link vendor user (UPDATE matched 0 rows)");
+    }
   } finally {
     await pool.end();
   }

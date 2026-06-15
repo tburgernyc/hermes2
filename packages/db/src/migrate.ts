@@ -11,6 +11,7 @@
  *   7. manual/0006_token_role.sql   hermes_token ← hermes_app membership (tokenized-submission path)
  *   8. manual/0007_token_audit.sql  hermes_token may APPEND audit rows (atomic with a tokenized write)
  *   9. manual/0008_line_item_trigger_definer.sql  line-item contract_type sync runs SECURITY DEFINER
+ *  10. manual/0009_vendor_role.sql  users↔vendors FK + hermes_vendor role + per-vendor RLS isolation
  *
  * Every manual step is idempotent, so re-running is safe.
  */
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
     await runManual(pool, "0006_token_role.sql");
     await runManual(pool, "0007_token_audit.sql");
     await runManual(pool, "0008_line_item_trigger_definer.sql");
+    await runManual(pool, "0009_vendor_role.sql");
 
     // Post-condition: the tokenized line-item insert depends on sync_line_item_contract_type being
     // SECURITY DEFINER (0008 — the token role can't SELECT vendor_quotes the trigger reads). If a future

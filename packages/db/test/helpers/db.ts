@@ -118,6 +118,7 @@ export async function capturePgError(fn: () => Promise<unknown>): Promise<PgErro
 /** Postgres SQLSTATE codes asserted by the negative tests. */
 export const PG = {
   CHECK_VIOLATION: "23514",
+  UNIQUE_VIOLATION: "23505", // duplicate key (e.g. the (org_id, token_jti) quote replay guard)
   INSUFFICIENT_PRIVILEGE: "42501", // covers both "permission denied" and RLS WITH CHECK failures
   RAISE_EXCEPTION: "P0001", // PL/pgSQL RAISE (audit immutability, solicitation submit guard)
 } as const;

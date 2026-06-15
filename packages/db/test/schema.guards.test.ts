@@ -55,6 +55,10 @@ interface PrivRow {
   token_vendors_insert: boolean;
   token_vendors_select: boolean;
   token_quote_insert: boolean;
+  token_quote_select: boolean;
+  token_audit_insert: boolean;
+  token_audit_update: boolean;
+  token_audit_delete: boolean;
   token_proposals_insert: boolean;
 }
 
@@ -135,6 +139,10 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
            has_table_privilege('hermes_token','vendors','INSERT')          AS token_vendors_insert,
            has_table_privilege('hermes_token','vendors','SELECT')          AS token_vendors_select,
            has_table_privilege('hermes_token','vendor_quotes','INSERT')    AS token_quote_insert,
+           has_table_privilege('hermes_token','vendor_quotes','SELECT')    AS token_quote_select,
+           has_table_privilege('hermes_token','audit_log','INSERT')        AS token_audit_insert,
+           has_table_privilege('hermes_token','audit_log','UPDATE')        AS token_audit_update,
+           has_table_privilege('hermes_token','audit_log','DELETE')        AS token_audit_delete,
            has_table_privilege('hermes_token','proposals','INSERT')        AS token_proposals_insert`,
       );
       privs = pr.rows[0];
@@ -202,6 +210,13 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     expect(privs?.token_vendors_insert).toBe(false);
     expect(privs?.token_vendors_select).toBe(false);
     expect(privs?.token_quote_insert).toBe(true);
+    // INSERT but NOT SELECT on vendor_quotes — so submitQuote supplies the quote UUID app-side
+    // (no RETURNING under the token role). This is the property that keeps the token write blind.
+    expect(privs?.token_quote_select).toBe(false);
+    // Token may APPEND audit rows (0007) but never alter/erase them (append-only triggers + no grant).
+    expect(privs?.token_audit_insert).toBe(true);
+    expect(privs?.token_audit_update).toBe(false);
+    expect(privs?.token_audit_delete).toBe(false);
     expect(privs?.token_proposals_insert).toBe(false);
   });
 });

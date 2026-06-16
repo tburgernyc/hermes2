@@ -272,6 +272,23 @@ adds NO Inngest/engine code, so the e2e stays Inngest-free (it exercises only th
 **Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/web` unit 10/10; web e2e **11/11** (4 auth +
 3 quote + 4 console). No `ci.yml` change (the new specs are auto-discovered by the existing `web-e2e` job).
 
+**CI flake fixed post-push (PR #12, the `web-e2e` job) — a real CI-cold-start footgun, NOT a PR-G code bug.**
+The 4 new admin-console specs each drive a full interactive admin login (password + live TOTP step-up); the
+first push went RED with a *non-deterministic* subset failing (different tests each run). Root cause, pinned
+via in-test diagnostics on a cold runner: **next-auth v5's `unstable_update` intermittently fails to PERSIST
+the refreshed session cookie when the standalone server is cold/contended** — the step-up action still
+computes `totpVerified=true` and redirects to `/admin`, but the cookie isn't written, so middleware bounces
+`/admin` back to `/admin/totp` (NO "invalid code" — verification itself succeeds). It needs wall-clock TIME to
+warm, not more calls; fast retries alone don't help. (`admin/page.tsx` never throws — the page is fine; the
+original `loginAdmin` declared success on the redirect URL alone and so masked the un-established session.)
+Fix is **test-only** (`apps/web/e2e/admin-console.spec.ts` + `playwright.config.ts`): a `beforeAll` warmup
+relentlessly establishes a throwaway login (≤24 attempts, growing backoff, 180s hook timeout) to prove the
+shared server warm *before* any assertion; `loginAdmin` now confirms a guarded page actually RENDERS (not the
+URL) and retries with backoff; per-test timeout 90s. `auth.spec.ts`'s single-attempt admin login stays the
+login-regression canary. **Prod impact is negligible** (Fly `min_machines_running=1` ⇒ server rarely cold);
+**latent follow-up:** harden the real `/admin/totp` step-up against the cold `unstable_update` cookie-persist
+race (out of PR-G scope; Phase-2 auth). Final: all **7 CI checks green** on `phase-6-admin-console`.
+
 **NEXT — PR H** (pricing/bid decision-brief review + drafting): new `hermes/quote.selected` human-gate event
 (emitted only by `selectQuote`) → `draftProposalBidFn` Inngest workflow (`engine.draftBid` + `buildPricingBrief`,
 writes a `proposals` row, fail-closed) → `/admin/solicitations/[id]/proposal` review surface (renders stored

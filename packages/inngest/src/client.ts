@@ -20,6 +20,13 @@ export type HermesEvents = {
   "hermes/sourcing.approved": { data: { orgId: string; solicitationId: string; approvedBy: string } };
   "hermes/outreach.approved": { data: { orgId: string; outreachId: string; approvedBy: string } };
   "hermes/outreach.rejected": { data: { orgId: string; outreachId: string; rejectedBy: string } };
+  // Emitted SOLELY by selectQuote (apps/web/app/admin/solicitations/actions.ts) when an admin selects a
+  // winning quote. It drafts a priced bid decision-brief into a proposals row (the workflow ANALYZES only —
+  // it never submits; the human-submit gate stays in the proposal review surface). The human already gated
+  // by selecting, so the drafting function is event-triggered (not a waitForEvent gate).
+  "hermes/quote.selected": {
+    data: { orgId: string; solicitationId: string; quoteId: string; selectedBy: string };
+  };
 };
 
 export const inngest = new Inngest({

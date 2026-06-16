@@ -7,17 +7,11 @@
  * committed rows back directly.
  */
 import { randomUUID } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Pool } from "pg";
 
-import { generateTotpCode } from "@hermes/core";
-
-import {
-  E2E_ADMIN_EMAIL,
-  E2E_ADMIN_PASSWORD,
-  E2E_ADMIN_TOTP_SECRET,
-  E2E_ORG_SLUG,
-} from "./fixtures";
+import { E2E_ADMIN_EMAIL, E2E_ORG_SLUG } from "./fixtures";
+import { loginAdmin } from "./admin-auth";
 
 const OWNER_DSN =
   process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
@@ -42,47 +36,6 @@ async function adminUserId(db: Pool, oid: string): Promise<string> {
   const id = r.rows[0]?.id;
   if (!id) throw new Error("admin-console.spec: e2e admin not found (global-setup did not run?)");
   return id;
-}
-
-async function loginAdmin(page: Page, maxAttempts = 8): Promise<void> {
-  await page.goto("/login");
-  await page.fill('input[name="email"]', E2E_ADMIN_EMAIL);
-  await page.fill('input[name="password"]', E2E_ADMIN_PASSWORD);
-  await page.click('button[type="submit"]');
-  await page.waitForURL(/\/admin\/totp$/);
-
-  // Establish the TOTP step-up, confirming the session is actually LIVE (a guarded page renders) rather
-  // than trusting the redirect URL alone. On a cold/contended CI runner next-auth's unstable_update
-  // intermittently fails to PERSIST the refreshed session cookie (confirmed via CI diagnostics): the
-  // step-up action still computes totpVerified=true and redirects to /admin, but the cookie isn't written,
-  // so middleware bounces /admin back to /admin/totp. Fast retries don't help — the standalone server needs
-  // wall-clock TIME (not just more calls) to warm — so we re-submit a fresh code with a growing backoff.
-  // The beforeAll warmup relentlessly establishes a session up front to prove the server warm; once warm,
-  // per-test logins succeed on the first attempt. auth.spec.ts keeps the single-attempt path as the canary.
-  const trace: string[] = [];
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (!page.url().includes("/admin/totp")) {
-      await page.goto("/admin/totp");
-      await page.waitForLoadState("domcontentloaded").catch(() => {});
-    }
-    if (page.url().includes("/admin/totp")) {
-      await page.fill('input[name="code"]', generateTotpCode(E2E_ADMIN_TOTP_SECRET));
-      await page.click('button[type="submit"]');
-      await page.waitForLoadState("networkidle").catch(() => {});
-    }
-    await page.goto("/admin");
-    if (await page.getByRole("heading", { name: "Admin Console" }).isVisible().catch(() => false)) {
-      if (attempt > 1) {
-        console.log(`[loginAdmin] admin session established after ${attempt} attempts (cold-start warming)`);
-      }
-      return;
-    }
-    trace.push(`#${attempt}:${new URL(page.url()).pathname}`);
-    // Back off so a cold/contended standalone server gets wall-clock time to warm before the next try.
-    await page.waitForTimeout(Math.min(1500 * attempt, 4000));
-  }
-
-  throw new Error(`loginAdmin: no live admin session after ${maxAttempts} step-up attempts [${trace.join(", ")}]`);
 }
 
 // Warm the standalone server's cold-start window BEFORE any assertion so the per-test logins run warm.

@@ -98,6 +98,11 @@ export default async function SolicitationDetail({
         {sol.agency ?? "Agency unknown"} · {humanizeStatus(sol.status)}
         {sol.responseDeadline ? ` · due ${sol.responseDeadline.toISOString()}` : ""}
       </p>
+      {(sol.status === "PROPOSAL_DRAFT" || sol.status === "SUBMITTED") && (
+        <p>
+          <Link href={`/admin/solicitations/${sol.id}/proposal`}>→ Review the priced bid decision-brief</Link>
+        </p>
+      )}
 
       <section>
         <h2>Triage recommendation</h2>

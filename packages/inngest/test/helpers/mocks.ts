@@ -5,7 +5,8 @@
  */
 import { vi, type Mock } from "vitest";
 
-import type { ProspectScore, SowBrief, TriageVerdict } from "@hermes/ai";
+import { assembleBidPackage } from "@hermes/ai";
+import type { ProposalNarrative, ProspectScore, SowBrief, TriageVerdict } from "@hermes/ai";
 
 import type { LogicDeps } from "../../src/logic.js";
 
@@ -32,6 +33,15 @@ const DEFAULT_SOW: SowBrief = {
   summary: "Provide tiered IT support.",
   keyRequirements: ["Tier 1 support", "Onsite within 4h"],
   suggestedCapabilities: [],
+};
+
+/** A canned (prose-only) narrative; the real engine assembles the deterministic brief around it. */
+const DEFAULT_NARRATIVE: ProposalNarrative = {
+  executiveSummary: "We propose a responsive, low-risk solution.",
+  technicalApproach: "Phased delivery with the selected subcontractor.",
+  managementApproach: "Single accountable PM; weekly status.",
+  pastPerformanceNarrative: "Relevant prior IT support engagements.",
+  assumptions: [],
 };
 
 export interface TestDeps {
@@ -63,6 +73,19 @@ export function makeDeps(ai: Partial<LogicDeps["ai"]> = {}): TestDeps {
         })),
         injectionAttemptsDetected: [],
       })),
+    // Default: assemble a real (deterministic) bid package around a canned narrative — no model call, so
+    // tests exercise the genuine pricing/compliance/§3 assembly. Override per-case to throw FailClosedError.
+    draftBid:
+      ai.draftBid ??
+      (async (input) =>
+        assembleBidPackage({
+          narrative: DEFAULT_NARRATIVE,
+          pricing: input.pricing,
+          compliance: input.compliance,
+          bid: input.bid,
+          submissionGates: input.submissionGates,
+          provisionalRatesMode: input.provisionalRatesMode,
+        })),
   };
 
   return {

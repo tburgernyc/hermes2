@@ -51,32 +51,46 @@ async function loginAdmin(page: Page): Promise<void> {
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/admin\/totp$/);
 
-  // Drive the TOTP step-up until the admin session is actually LIVE — not merely until the URL is /admin.
-  // Under server cold-start, next-auth's unstable_update→redirect step intermittently fails to persist the
-  // refreshed session cookie: the redirect still lands on /admin, but totpVerified isn't saved, so the next
-  // guarded page throws (requireAdmin) and renders nothing. A URL check alone can't see that — the original
-  // helper's waitForURL(/\/admin$/) passed even when /admin had 500'd — so each attempt CONFIRMS the session
-  // by loading a guarded page and asserting its content renders; if it didn't, we re-submit a fresh code
-  // (the cookie write re-runs). auth.spec.ts keeps the single-attempt path as the login-regression canary.
+  // DIAGNOSTIC build: capture exactly what the TOTP step-up does on each attempt so the CI log shows the
+  // failure mode (verify rejected → /admin/totp?error=1 "Invalid code", vs verify OK but session not live).
+  const diag: string[] = [];
   for (let attempt = 1; attempt <= 6; attempt += 1) {
+    if (!page.url().includes("/admin/totp")) {
+      await page.goto("/admin/totp");
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+    }
+    if (page.url().includes("/admin/totp")) {
+      const code = generateTotpCode(E2E_ADMIN_TOTP_SECRET);
+      await page.fill('input[name="code"]', code);
+      await page.click('button[type="submit"]');
+      await page.waitForLoadState("networkidle").catch(() => {});
+      const u = new URL(page.url());
+      const alert = await page
+        .getByRole("alert")
+        .textContent()
+        .catch(() => null);
+      const h1 = await page
+        .locator("h1")
+        .first()
+        .textContent()
+        .catch(() => null);
+      diag.push(
+        `#${attempt} code=${code} -> ${u.pathname}${u.search} h1=${JSON.stringify(h1)} alert=${JSON.stringify(alert)}`,
+      );
+    }
     await page.goto("/admin");
-    const live = await page
-      .getByRole("heading", { name: "Admin Console" })
-      .isVisible()
-      .catch(() => false);
-    if (live) return;
-
-    await page.goto("/admin/totp");
-    await page.waitForURL(/\/admin\/totp$/, { timeout: 8000 }).catch(() => {});
-    if (!page.url().includes("/admin/totp")) continue; // bounced to /admin (verified) — re-check next loop
-    await page.fill('input[name="code"]', generateTotpCode(E2E_ADMIN_TOTP_SECRET));
-    await page.click('button[type="submit"]');
-    await page.waitForURL(/\/admin(\/totp)?/, { timeout: 8000 }).catch(() => {});
+    const adminH1 = await page
+      .locator("h1")
+      .first()
+      .textContent()
+      .catch(() => null);
+    diag.push(`   liveness: ${new URL(page.url()).pathname} h1=${JSON.stringify(adminH1)}`);
+    if (await page.getByRole("heading", { name: "Admin Console" }).isVisible().catch(() => false)) {
+      return;
+    }
   }
 
-  // Exhausted retries — fail loudly with the real reason instead of a misleading downstream assertion.
-  await page.goto("/admin");
-  await expect(page.getByRole("heading", { name: "Admin Console" })).toBeVisible();
+  throw new Error("loginAdmin diagnostics:\n" + diag.join("\n"));
 }
 
 test("solicitations board renders the phase lanes and a triaged card", async ({ page }) => {

@@ -225,6 +225,51 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 — PR D: Deterministic compliance config + engine — **CODE COMPLETE** (2026-06-16)
+
+The first Phase-6 module: the firm's compliance/pricing config + the deterministic gate engine the pricing/
+bid modules sit on. Built on a PROVISIONAL "assumed-counsel" baseline (operator-authorized while real counsel
+is ~weeks out); everything `pendingCounsel`; the no-auto-submit + counsel-review CHECKs still block any real
+bid, so building on provisional values is §6-compliant.
+
+**What shipped** (branch `phase-6-compliance-engine`, off `main @ 37893dd`):
+- **`docs/compliance/counsel-compliance-brief.md`** (committed `998e1d9`): AI-prepared, adversarially-verified
+  provisional baseline — researched + double-verified FAR/SBA thresholds (SAT $350k, T&M 0-markup incl
+  ODC/TRAVEL = resolves far-04, TINA $2.5M civ/$10M def-after-6/30/26, size $34M/**5-yr** receipts, pass-through
+  70%, realism/unbalanced heuristics), USASpending benchmark constants (J/Y/Z; SBA/SBP/NONE; two queries),
+  reps&certs, UCF/forms, and the firm identity + SAM/CAGE submission gates. Banking excluded.
+- **`@hermes/db` `directives.ts`:** extended `OrgDirectives` (Zod) — defaults ARE the provisional baseline, so
+  `defaultDirectives()`/`parseDirectives({})` = the firm's full config; counsel's answers + actual rates merge
+  by overriding keys. Added the SAT trigger, `tmZeroMarkupCostTypes`, size standard, `receiptsAveragingYears`
+  (locked `z.literal(5)`), TINA defense, unbalanced heuristics, `provisionalRatesMode` + illustrative indirect
+  rates, `registration` (SAM/CAGE). Helpers `defaultDirectives` / `hasUnconfirmedCounselThresholds`. Hard locks
+  kept (socio-economic `z.literal(false)`, cap ≤50).
+- **`@hermes/ai` `compliance.ts`** (DB-free deterministic engine — the model NEVER decides): config-driven +
+  new gates — LoS SAT trigger + warn band + **SS-sub further-subcontracting counts back** (13 CFR 125.6(c));
+  `isMarkupLocked` (T&M 0% incl ODC/TRAVEL); `checkSizeEligibility`; `checkUnbalancedPricing`
+  (`requireBothOverAndUnder` per GAO — understated-only ≠ unbalanced); TINA SAT floor; **`readyForLiveSubmission`**
+  — the ONLY gate on an actual bid, requiring all six (counsel-confirmed, actual-rates, active-SAM, CAGE,
+  human-signature, counsel-review). `buildComplianceChecklist` watermarks PROVISIONAL output; **heuristics
+  (realism/pass-through/unbalanced) NEVER block; only real compliance failures (eligibility, LoS, size, T&M
+  markup) block.**
+
+**Dry-run vs live (operator-directed):** the whole pipeline runs on provisional rates/thresholds for live
+testing — `provisionalRatesMode` is a non-blocking watermark; only `readyForLiveSubmission` gates a real bid.
+
+**Adversarial review** (code-reviewer + per-finding triage): **0 CRITICAL**; 2 HIGH fixed (similarly-situated
+keys on the **subcontract** NAICS, not the solicitation NAICS; SS-sub further-subcontracting now counts back —
+FCA-relevant); MEDIUMs fixed (realism `pendingCounsel:true`; pass-through note tracks the configured threshold;
+TINA SAT floor; org `tmZeroMarkupCostTypes` wired through the checklist; + TINA-not-blocking / defense-branch /
+live-gate tests). **Deferred follow-ups:** add `vendor_quote_line_items.further_subcontracted_to_non_ss` so the
+bid-pricing PR computes the LoS numerator from line items; NAICS-normalization note on `isSimilarlySituated`.
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/ai` 33/33 (+2 live skipped); `@hermes/db`
+141/141. (No new CI job — auto-discovered by `build`/`db`.)
+
+**NEXT Phase-6 PRs (in order):** pricing decision-brief (cost model + USASpending benchmarks, scenarios only) →
+bid-drafting + compliance checklist + DOCX/PDF export → admin dashboard → vendor portal (`VENDOR_INVITE`
+onboarding + logged-in submit + "my" reads). All `pendingCounsel`; no real bid until `readyForLiveSubmission`.
+
 ### Phase 6 prerequisite (PR C) — users↔vendors vetting linkage — **CODE COMPLETE** (2026-06-15)
 
 The unblocked, counsel-independent prerequisite for the Phase-6 vendor portal + approval queue: a trusted

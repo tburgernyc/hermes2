@@ -225,6 +225,34 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 — PR E: Pricing decision-brief (deterministic cost model + scenarios) — **CODE COMPLETE** (2026-06-16)
+
+**What shipped** (branch `phase-6-pricing-brief`, off `main @ 11abba4`):
+- **`@hermes/ai` `pricing.ts`** (DB-free deterministic; the model writes prose — `schemas.ts` says "pricing
+  + compliance are computed deterministically"): bottoms-up cost model from a quote's line items + the firm's
+  indirect rates (DCAA build-up — fringe/OH on prime LABOR, G&A on TCI, fee last); `feeScenarios`
+  (conservative/target/aggressive — **fails closed on <2 bands**, never a single number §6); `benchmarkStats`
+  (min/p25/median/p75/max; excludes $0 awards; **null** on no data); `usaspendingBenchmarkFilter` (verified
+  §6.2 codes — J/Y/Z, SBA/SBP/NONE, A/B/C/D contract-only, two-query; extent omitted by default);
+  `marginVsWin` (labeled heuristic, null vs-median without a benchmark); `buildPricingBrief` assembles cost
+  model + scenarios + benchmark + the PR-D compliance checklist (provisional flag propagated) + the
+  PROVISIONAL watermark + the "scenarios only, human chooses" disclaimer.
+- **Tests** (`pricing.test.ts`, 10): the DCAA build-up math, scenarios-never-one-number + the <2-band guard,
+  benchmark distribution + $0/empty handling, the USASpending filter codes, the heuristic margin-vs-win, the
+  assembled brief, the non-provisional path.
+
+**Adversarial review** (code-reviewer + triage): **0 CRITICAL**; 2 HIGH fixed (§6 ≥2-scenario fail-closed
+guard; clarified the wrap-band is a RATE-structure check, not a quote ratio) + MEDIUMs ($0-award exclusion,
+null-on-empty benchmark, provisional-flag propagation into the checklist, dropped the over-constraining extent
+filter) + LOWs. No model in the pricing path (pure deterministic).
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/ai` 43/43 (+2 live skipped).
+
+**NEXT:** bid-drafting module (AI narrative + the deterministic pricing brief + compliance checklist → DOCX/PDF
+via the code-execution tool) → admin dashboard → vendor portal. The USASpending benchmark FETCH (network) wires
+into `@hermes/inngest` (SSRF-guarded; `api.usaspending.gov` already allowlisted). All `pendingCounsel`; no real
+bid until `readyForLiveSubmission`.
+
 ### Phase 6 — PR D: Deterministic compliance config + engine — **CODE COMPLETE** (2026-06-16)
 
 The first Phase-6 module: the firm's compliance/pricing config + the deterministic gate engine the pricing/

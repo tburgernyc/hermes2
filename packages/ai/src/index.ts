@@ -6,5 +6,6 @@
 export * from "./client.js";
 export * from "./schemas.js";
 export * from "./compliance.js";
+export * from "./pricing.js";
 export * from "./engine.js";
 export * from "./embed.js";

@@ -51,10 +51,14 @@ async function loginAdmin(page: Page): Promise<void> {
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/admin\/totp$/);
 
-  // DIAGNOSTIC build: capture exactly what the TOTP step-up does on each attempt so the CI log shows the
-  // failure mode (verify rejected → /admin/totp?error=1 "Invalid code", vs verify OK but session not live).
+  // Establish the TOTP step-up, confirming the session is actually LIVE (a guarded page renders) rather
+  // than trusting the redirect URL alone. On a cold/contended CI runner the first step-up requests are
+  // slow enough that the session sometimes isn't established on the first try and fast retries don't help
+  // (the server needs wall-clock time to warm), so we re-submit a fresh code with a short backoff. A
+  // beforeAll warmup burns most of the cold window up front; auth.spec.ts keeps the single-attempt path as
+  // the login-regression canary. (The per-attempt trace is logged so a cold failure shows its mode in CI.)
   const diag: string[] = [];
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
     if (!page.url().includes("/admin/totp")) {
       await page.goto("/admin/totp");
       await page.waitForLoadState("domcontentloaded").catch(() => {});
@@ -74,9 +78,9 @@ async function loginAdmin(page: Page): Promise<void> {
         .first()
         .textContent()
         .catch(() => null);
-      diag.push(
-        `#${attempt} code=${code} -> ${u.pathname}${u.search} h1=${JSON.stringify(h1)} alert=${JSON.stringify(alert)}`,
-      );
+      const line = `#${attempt} code=${code} -> ${u.pathname}${u.search} h1=${JSON.stringify(h1)} alert=${JSON.stringify(alert)}`;
+      diag.push(line);
+      console.log("[loginAdmin] " + line);
     }
     await page.goto("/admin");
     const adminH1 = await page
@@ -84,14 +88,33 @@ async function loginAdmin(page: Page): Promise<void> {
       .first()
       .textContent()
       .catch(() => null);
-    diag.push(`   liveness: ${new URL(page.url()).pathname} h1=${JSON.stringify(adminH1)}`);
+    const lline = `   liveness: ${new URL(page.url()).pathname} h1=${JSON.stringify(adminH1)}`;
+    diag.push(lline);
+    console.log("[loginAdmin] " + lline);
     if (await page.getByRole("heading", { name: "Admin Console" }).isVisible().catch(() => false)) {
       return;
     }
+    // Back off so a cold/contended standalone server gets wall-clock time to warm before the next try.
+    await page.waitForTimeout(Math.min(1000 * attempt, 3000));
   }
 
-  throw new Error("loginAdmin diagnostics:\n" + diag.join("\n"));
+  throw new Error("loginAdmin step-up never established a live admin session:\n" + diag.join("\n"));
 }
+
+// Burn the standalone server's cold-start window once, before any assertion, so the per-test logins run
+// warm. admin-console runs first in the suite (alphabetical), so warming here warms the whole run. The
+// warmup is best-effort — its only job is to exercise argon2 / the DB pool / RSC / the auth-session path.
+test.beforeAll(async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  try {
+    await loginAdmin(page);
+  } catch {
+    // ignore — a cold warmup that doesn't fully settle still warms the server for the real tests
+  } finally {
+    await context.close();
+  }
+});
 
 test("solicitations board renders the phase lanes and a triaged card", async ({ page }) => {
   const db = pool();

@@ -225,6 +225,48 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 — PR F: Bid-drafting module (deterministic §3 checklist + package assembler) — **CODE COMPLETE** (2026-06-16)
+
+**What shipped** (branch `phase-6-bid-drafting`, off `main @ 6ee5fda`; PR #11):
+- **`@hermes/ai` `bid.ts`** (DB-free deterministic — mirrors `compliance.ts`/`pricing.ts`; the model writes
+  PROSE only, every gate deterministic §2): the counsel-brief **§3 bid checklist** that *eliminates
+  self-inflicted disqualifiers* and produces a DRAFT for human + external counsel (never asserts compliant/
+  no-flags/will-win/legal conclusion). `reconcilePricingMath` (§3.5 BLOCK — `unit×qty=extended`,
+  `Σ=grand total`, `base+options=grand total`, **cross-volume/externally-cited totals**; **fails CLOSED on
+  non-finite NaN/Infinity money**; **clamps `toleranceUsd` to the cent** — a caller can only make the gate
+  stricter); `checkAmendmentsAcknowledged` (SF30→BLOCK), `checkNoProhibitedExceptions` (material→BLOCK);
+  `checkSectionLConformance`/`checkSectionMCoverage` (L-to-M crosswalk)/`checkRepsAndCerts` (WARN/advisory,
+  **never block** — SAM-active + counsel block the *actual* bid via `readyForLiveSubmission`);
+  **form-aware `solicitationFormProfile`** (§6.6 — Part 12 commercial SF1449/52.212-1&2/**"nonresponsive"**,
+  **no UCF section letters**, vs Part 15 UCF SF33/Section L&M/**"outside the competitive range"**, + RFO
+  renumber); `buildBidChecklist` + `assembleBidPackage` (composes narrative + pricing brief + compliance +
+  bid checklist; PROVISIONAL watermark; `readyForLiveSubmission` gate; anti-overclaim disclaimer).
+- **`engine.ts`:** `draftBid` (model narrative + deterministic assembly) + `exportBidDoc` (code-execution →
+  DOCX/PDF, **live-only, AFTER human review**; watermark per page + disclaimer footer) + extracted shared
+  `draftNarrative` helper (`draftProposal` behavior unchanged).
+- **Tests:** 31 new (30 `bid.test.ts` unit + 1 `draftBid` engine — incl. the proof an **over-claiming model
+  narrative cannot flip a deterministic BLOCK**, the non-finite/tolerance-clamp/cross-volume fail-closed
+  paths, and commercial-form labels ≠ "Section L/M").
+
+**Adversarial review** (Workflow: 4 lenses — prime-directive / determinism-math / typescript / FAR-fidelity —
+each finding independently verified): **15 findings → 5 confirmed, 10 refuted**. **0 CRITICAL.** Fixed: the
+**HIGH** (`reconcilePricingMath` returned `reconciled:true` for NaN/Infinity — fail-OPEN on a BLOCK gate; now
+fails closed), 2 **MEDIUM** (unvalidated `toleranceUsd` could hide/invert the BLOCK → clamped to the cent;
+"Section L/M" mislabel on commercial Part 12 → form-aware labels), 2 **LOW** (export headings said
+"provisional" on a confirmed render → provisional-aware; missing §3.5 cross-volume reconciliation → added).
+**Decision:** `exportBidDoc` deliberately renders blocking drafts too (reviewers must *see* the failures) —
+watermark + `[REVIEW]` markers + disclaimer convey state; submission is structurally gated by the `proposals`
+no-auto-submit + counsel CHECKs (the refuted "no gate check" finding).
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/ai` **74 passed** (+2 live skipped). No CI
+change (auto-discovered by `build`'s `turbo test`; no DB, no `ANTHROPIC_API_KEY` — §4).
+
+**NEXT:** admin dashboard (morning brief; solicitations kanban + approve/reject sourcing; prospects +
+approve-outreach; AI-ranked quotes + shortlist; pricing/bid review) → vendor portal (`VENDOR_INVITE`
+onboarding + logged-in submit + "my" reads). The USASpending benchmark FETCH wires into `@hermes/inngest`
+(SSRF-guarded). Deferred: `vendor_quote_line_items.further_subcontracted_to_non_ss` (bid-pricing LoS
+numerator from line items). All `pendingCounsel`; no real bid until `readyForLiveSubmission`.
+
 ### Phase 6 — PR E: Pricing decision-brief (deterministic cost model + scenarios) — **CODE COMPLETE** (2026-06-16)
 
 **What shipped** (branch `phase-6-pricing-brief`, off `main @ 11abba4`):

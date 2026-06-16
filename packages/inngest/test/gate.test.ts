@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   arFn,
   deadlineFn,
+  draftProposalBidFn,
   functions,
   heartbeatFn,
   morningBriefFn,
@@ -22,18 +23,21 @@ import {
 } from "../src/functions.js";
 
 describe("durable function registry", () => {
-  it("registers all ten functions, including the approval gate", () => {
+  it("registers all eleven functions, including the approval gate", () => {
     expect(functions).toContain(outreachGateFn);
-    expect(functions).toHaveLength(10);
+    expect(functions).toHaveLength(11);
     // No accidental duplicates — every served function is a distinct object.
     expect(new Set(functions).size).toBe(functions.length);
   });
 
-  it("keeps the gate distinct from every autonomous function", () => {
-    const autonomous = [
+  it("keeps the gate distinct from every autonomous / event-triggered function", () => {
+    // draftProposalBidFn is event-triggered (it reacts to a human-gate event, like triageFn reacts to
+    // ingest) — it is NOT the outreach waitForEvent gate, and it never sends or submits.
+    const nonGate = [
       samScan,
       triageFn,
       onSourcingApprovedFn,
+      draftProposalBidFn,
       quoteDetectorFn,
       usaspendingFn,
       deadlineFn,
@@ -41,7 +45,7 @@ describe("durable function registry", () => {
       morningBriefFn,
       heartbeatFn,
     ];
-    expect(autonomous).not.toContain(outreachGateFn);
-    for (const fn of autonomous) expect(functions).toContain(fn);
+    expect(nonGate).not.toContain(outreachGateFn);
+    for (const fn of nonGate) expect(functions).toContain(fn);
   });
 });

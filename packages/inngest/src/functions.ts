@@ -19,6 +19,7 @@ import { inngest } from "./client.js";
 import { safeFetchDocument } from "./safety.js";
 import {
   composeMorningBrief,
+  draftProposalBid,
   expireOutreach,
   findUnrankedSolicitationIds,
   ingestSolicitations,
@@ -131,6 +132,23 @@ export const outreachGateFn = inngest.createFunction(
   },
 );
 
+/* ========== POST-HUMAN-SELECTION — draft the priced bid decision-brief (no submit) ========= */
+// Triggered by the hermes/quote.selected human-gate event (emitted ONLY by an admin selecting a winner).
+// The human already gated by selecting, so this is event-triggered, NOT a waitForEvent gate. It drafts a
+// proposals row and advances the solicitation to PROPOSAL_DRAFT — it never submits and never sends.
+export const draftProposalBidFn = inngest.createFunction(
+  { id: "draft-proposal-bid", retries: 2 },
+  { event: "hermes/quote.selected" },
+  async ({ event, step }) => {
+    const { orgId, solicitationId, quoteId, selectedBy } = event.data;
+    return step.run("draft", () =>
+      withOrg(orgId, (tx) =>
+        draftProposalBid(tx, defaultDeps(), { orgId, solicitationId, quoteId, selectedBy }),
+      ),
+    );
+  },
+);
+
 /* ============================ AUTONOMOUS — Quote detector (every 15 min) =================== */
 export const quoteDetectorFn = inngest.createFunction(
   { id: "quote-detector", retries: 2 },
@@ -227,6 +245,7 @@ export const functions = [
   triageFn,
   onSourcingApprovedFn,
   outreachGateFn,
+  draftProposalBidFn,
   quoteDetectorFn,
   usaspendingFn,
   deadlineFn,

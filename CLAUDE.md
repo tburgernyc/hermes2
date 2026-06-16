@@ -225,6 +225,59 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 — PR H: Priced bid decision-brief — select→draft workflow + review surface — **CODE COMPLETE** (2026-06-16)
+
+Closes the loop PR G left open: selecting a winning quote now emits a durable HUMAN-GATE event that drafts a
+**priced bid decision-brief** into a `proposals` row, and a review surface walks it
+`DRAFT → COUNSEL_REVIEW → READY_TO_SUBMIT → submit` — where the submit is **structurally blocked** by
+`readyForLiveSubmission` while the firm runs on the provisional baseline. No model advances state; no
+auto-submit; no outbound. **No DB migration** (the `proposals` table/enum/CHECKs + `solicitation_submit_guard`
+already existed). The AI narrative is deterministically assembled but **not persisted** (the surface renders
+only the deterministic brief; export regenerates prose on demand).
+
+**What shipped** (branch `phase-6-proposal-review`, off `main @ 2ea1faf`):
+- **`@hermes/inngest`**: new `hermes/quote.selected` human-gate event (`client.ts`); `draftProposalBid`
+  logic (`logic.ts`) — idempotency layer 1 (one proposal/solicitation → `ALREADY_DRAFTED`), winner gate
+  (`status='SELECTED'` or `PROPOSAL_DRAFT_REFUSED_NO_WINNER`), **`is_services` NULL fail-closed** (drafting on
+  a coerced `false` would fail OPEN on the LoS services cap), **zero-line-items fail-closed** (no cost model +
+  `proposals.contract_type` has no concrete value), `FailClosedError` → `PROPOSAL_DRAFT_FAILED_CLOSED` (no row,
+  stays PRICING_PENDING), else insert DRAFT (`pricingScenarios`/`complianceChecklist` jsonb; submit/counsel
+  cols NULL; FAR substrate money columns) + advance `PROPOSAL_DRAFT` + SYSTEM `PROPOSAL_DRAFTED`. `draftProposalBidFn`
+  (event-triggered, retries:2 — NOT a waitForEvent gate; the human already gated by selecting); `functions`
+  10→11. `LogicDeps.ai` Pick widened with `draftBid` (forced the `mocks.ts` default — assembles a REAL
+  deterministic package around a canned narrative, so tests exercise genuine pricing/compliance/§3 assembly).
+- **`apps/web`**: `selectQuote` now best-effort emits the gate event **outside** the committed tx, with a
+  `try/catch` that audits `QUOTE_SELECTED_EMIT_FAILED` and never fails the selection (mandatory: web-e2e's
+  `next start` has no `INNGEST_EVENT_KEY`, so an unguarded `send()` throws and would break PR-G's select e2e).
+  New `[id]/proposal/page.tsx` (renders scenarios table + compliance + §3 bid checklist + **live-submission
+  blockers**, JSX-autoescaped) + `[id]/proposal/actions.ts` (the 3 human gates; **none emit/no outbound**;
+  `submitProposal` recomputes `readyForLiveSubmission` from current directives → `BID_SUBMIT_BLOCKED` + no
+  status change on the provisional baseline). `@hermes/ai` added as a direct web dep (SDK already transitively
+  present via `@hermes/inngest`).
+- **Tests:** 6 new inngest DB-logic (happy/fail-closed/is_services-null/no-winner/no-line-items/idempotent),
+  gate-wiring 10→11, new `e2e/proposal.spec.ts` (seeded DRAFT proposal → render + counsel-review → mark-ready →
+  **submit BLOCKED** Prime-Directive assertion), and `e2e/admin-auth.ts` (extracted the shared `loginAdmin`).
+
+**Non-obvious decisions / footguns:**
+- **pricingMath `extendedAmount` = `unitRate × quantity`, NOT the DB `extended_amount`.** `reconcilePricingMath`
+  BLOCKs unless `|extended − unit×qty| ≤ tol`; the stored `extended_amount` bakes in markup, so passing it would
+  spuriously BLOCK every draft. The generated brief reconciles by construction; markup lives in the cost model.
+- All `numeric`/`money` columns are **strings** in Drizzle — coerce reads with `Number`, write with `.toFixed(2)`.
+- `proposals.contract_type` (NOT NULL, no UNKNOWN) is taken from `lines[0].contractType` (concrete via the sync
+  trigger); the engine pricing/compliance inputs use `sol.contractType ?? "UNKNOWN"` (equal in practice — a line
+  item cannot exist unless the solicitation already has a concrete type the trigger copied).
+- 8(a)/HUBZONE/SDVOSB/WOSB/OTHER → `OTHER_RESTRICTED` + `orgSocioEconomicCerts=[]` is a **correct** eligibility
+  BLOCK (the firm holds no certs, §6.7), not a false one.
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/inngest` **21/21** (DB-backed, mocked AI, no
+`ANTHROPIC_API_KEY`); `@hermes/web` unit 10/10; web e2e **13/13** (4 console + 4 auth + 2 proposal + 3 quote —
+PR-G's "select does NOT advance" still green). No migration, no `ci.yml` change (new tests auto-discovered).
+
+**NEXT:** the vendor portal (`VENDOR_INVITE` onboarding + logged-in submit + "my" reads). Deferred: persist the
+AI narrative if a later phase needs the export path to read it back; advance the *solicitation* to SUBMITTED on
+an actual submission (unreachable on the provisional baseline). All `pendingCounsel`; no real bid until
+`readyForLiveSubmission`.
+
 ### Phase 6 — PR G: Admin operator console (read + human decisions) — **CODE COMPLETE** (2026-06-16)
 
 The first half of the admin dashboard (split G/H, operator-approved): the navigable console over the

@@ -15,7 +15,7 @@
  *   - Every autonomous write and every approval appends an audit_log row (actorType SYSTEM / ADMIN).
  */
 import type { Engine } from "@hermes/ai";
-import { FailClosedError, MODELS } from "@hermes/ai";
+import { buildCostModel, FailClosedError, MODELS } from "@hermes/ai";
 // Operators come from @hermes/db (the package that owns the drizzle-orm instance) so their SQL<> types
 // match the table objects — never import these from "drizzle-orm" directly (see packages/db/src/orm.ts).
 import {
@@ -25,14 +25,18 @@ import {
   desc,
   eq,
   gte,
+  hasUnconfirmedCounselThresholds,
   inArray,
   isNull,
   lte,
   outreachCampaigns,
   orgs,
+  parseDirectives,
+  proposals,
   solicitations,
   users,
   vendorProspects,
+  vendorQuoteLineItems,
   vendorQuotes,
   type Tx,
 } from "@hermes/db";
@@ -63,7 +67,7 @@ const LIVE_STATUSES = [
 
 /** Injected collaborators. Production wires the live engine / Resend / SSRF-guarded fetch; tests mock. */
 export interface LogicDeps {
-  ai: Pick<Engine, "triageSolicitation" | "scoreProspect" | "draftSOW" | "evaluateQuotes">;
+  ai: Pick<Engine, "triageSolicitation" | "scoreProspect" | "draftSOW" | "evaluateQuotes" | "draftBid">;
   sendOutreachEmail: (input: OutreachEmailInput) => Promise<{ id?: string }>;
   sendBriefEmail: (input: MorningBriefInput) => Promise<{ id?: string }>;
   fetchDoc: (
@@ -106,6 +110,20 @@ function mapZeroFloatFit(fits: boolean, feasibility: number): "STRONG" | "MODERA
 function mapContractType(t: string): "FFP" | "TM" | "FFP_MILESTONE" | null {
   return t === "FFP" || t === "TM" || t === "FFP_MILESTONE" ? t : null;
 }
+
+/**
+ * Map the DB's 7-value set_aside_type onto the compliance engine's 3-value SetAside. The firm holds no
+ * socio-economic certifications (CLAUDE.md §6.7), so 8(a)/HUBZONE/SDVOSB/WOSB/OTHER all collapse to
+ * OTHER_RESTRICTED — with orgSocioEconomicCerts=[] that is a CORRECT eligibility BLOCK, never a false one.
+ */
+function mapSetAside(t: string): "NONE" | "TOTAL_SMALL_BUSINESS" | "OTHER_RESTRICTED" {
+  if (t === "NONE") return "NONE";
+  if (t === "TOTAL_SMALL_BUSINESS") return "TOTAL_SMALL_BUSINESS";
+  return "OTHER_RESTRICTED";
+}
+
+const num = (v: unknown): number => Number(v ?? 0);
+const money2 = (n: number): string => n.toFixed(2);
 
 function validNaics(code: string | null | undefined): string | null {
   return code && NAICS_RE.test(code) ? code : null;
@@ -599,6 +617,283 @@ export async function findUnrankedSolicitationIds(
       ),
     );
   return rows.map((r) => r.solicitationId);
+}
+
+/* ===================================================================================
+ * DRAFT PROPOSAL BID — triggered by the hermes/quote.selected HUMAN-GATE event (emitted only by an
+ * admin selecting a winner). Drafts a PRICED bid decision-brief into a proposals row: deterministic
+ * pricing scenarios + compliance + §3 bid checklist (engine writes PROSE only), advances the
+ * solicitation to PROPOSAL_DRAFT, and STOPS. It never submits and never sends — the human walks the
+ * proposal through counsel-review → ready → submit on the review surface, where readyForLiveSubmission
+ * structurally blocks any real bid on the provisional baseline (CLAUDE.md §2/§6). Fail-closed: a NULL
+ * is_services classification, zero line items, or a FailClosedError leaves PRICING_PENDING with no row.
+ * Idempotent: a second event for a solicitation that already has a proposal is a no-op.
+ * =================================================================================== */
+export async function draftProposalBid(
+  tx: Tx,
+  deps: LogicDeps,
+  args: { orgId: string; solicitationId: string; quoteId: string; selectedBy: string },
+): Promise<
+  | { status: "DRAFTED"; proposalId: string }
+  | { status: "ALREADY_DRAFTED" }
+  | { status: "NOT_FOUND" }
+  | { status: "REFUSED" }
+  | { status: "FAILED_CLOSED" }
+> {
+  const { orgId, solicitationId } = args;
+
+  // Idempotency layer 1: one proposal per solicitation. A retried/duplicate event is a no-op.
+  const existing = await tx
+    .select({ id: proposals.id })
+    .from(proposals)
+    .where(and(eq(proposals.orgId, orgId), eq(proposals.solicitationId, solicitationId)))
+    .limit(1);
+  if (existing.length > 0) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "PROPOSAL_DRAFT_SKIPPED_EXISTS",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { proposalId: existing[0]!.id },
+    });
+    return { status: "ALREADY_DRAFTED" };
+  }
+
+  const [sol] = await tx
+    .select()
+    .from(solicitations)
+    .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)))
+    .limit(1);
+  if (!sol) return { status: "NOT_FOUND" };
+
+  // Winner gate (defense in depth): only a SELECTED quote represents the human's selection. If there is no
+  // SELECTED quote for this id, refuse — something emitted the gate event out of band.
+  const [q] = await tx
+    .select()
+    .from(vendorQuotes)
+    .where(
+      and(
+        eq(vendorQuotes.orgId, orgId),
+        eq(vendorQuotes.id, args.quoteId),
+        eq(vendorQuotes.solicitationId, solicitationId),
+        eq(vendorQuotes.status, "SELECTED"),
+      ),
+    )
+    .limit(1);
+  if (!q) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "PROPOSAL_DRAFT_REFUSED_NO_WINNER",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { quoteId: args.quoteId },
+    });
+    return { status: "REFUSED" };
+  }
+
+  // is_services NULL fail-closed: drafting on a coerced `false` would fail OPEN on the FAR 52.219-14
+  // services cap. Leave PRICING_PENDING for human classification.
+  if (sol.isServices === null) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "PROPOSAL_DRAFT_FAILED_CLOSED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { stage: "is_services_null" },
+    });
+    return { status: "FAILED_CLOSED" };
+  }
+
+  const lines = await tx
+    .select()
+    .from(vendorQuoteLineItems)
+    .where(and(eq(vendorQuoteLineItems.orgId, orgId), eq(vendorQuoteLineItems.quoteId, q.id)));
+  // No line items → we cannot build a cost model, and proposals.contract_type (NOT NULL, no UNKNOWN) has
+  // no concrete value to take. Fail closed.
+  if (lines.length === 0) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "PROPOSAL_DRAFT_FAILED_CLOSED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { stage: "no_line_items" },
+    });
+    return { status: "FAILED_CLOSED" };
+  }
+
+  const [org] = await tx
+    .select({ directives: orgs.directives })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+  const dir = parseDirectives(org?.directives);
+  const rates = dir.illustrativeIndirectRates;
+
+  // Benchmark award amounts for this NAICS (finite, > 0). Omit the field entirely if we have none.
+  let benchmarkAwardAmounts: number[] | undefined;
+  if (sol.naicsCode) {
+    const awards = await tx
+      .select({ amount: awardIntelligence.awardAmount })
+      .from(awardIntelligence)
+      .where(and(eq(awardIntelligence.orgId, orgId), eq(awardIntelligence.naicsCode, sol.naicsCode)));
+    const amts = awards.map((a) => Number(a.amount)).filter((n) => Number.isFinite(n) && n > 0);
+    if (amts.length > 0) benchmarkAwardAmounts = amts;
+  }
+
+  // Deterministic substrate (all money coerced from numeric strings).
+  const pricingLines = lines.map((l) => ({
+    costType: l.costType,
+    quantity: num(l.quantity),
+    unitRate: num(l.unitRate),
+  }));
+  const extLine = (l: (typeof lines)[number]): number => num(l.unitRate) * num(l.quantity);
+  const cost = buildCostModel(pricingLines, rates).totalCost;
+  const priceProxy = cost * (1 + rates.fee);
+  const subcontractCost = lines
+    .filter((l) => l.costType === "SUBCONTRACT")
+    .reduce((s, l) => s + extLine(l), 0);
+  const nonSimSubsTotal = lines
+    .filter((l) => l.costType === "SUBCONTRACT" && l.similarlySituated !== true)
+    .reduce((s, l) => s + extLine(l), 0);
+
+  const winningQuoteSummary = [
+    `Selected subcontractor quote total: ${q.totalPrice ?? money2(priceProxy)}.`,
+    "Line items:",
+    ...lines.map(
+      (l) => `- ${l.costType} ${l.description}: ${num(l.quantity)} × ${num(l.unitRate)} = ${extLine(l)}`,
+    ),
+    q.notes ? `Notes: ${q.notes}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  let pkg;
+  try {
+    pkg = await deps.ai.draftBid({
+      solicitationTitle: sol.title,
+      scopeText: sol.scopeText ?? "",
+      winningQuoteSummary, // q.notes flows through here; the engine fences it as untrusted data
+      provisionalRatesMode: dir.provisionalRatesMode,
+      pricing: {
+        contractType: sol.contractType ?? "UNKNOWN",
+        lines: pricingLines,
+        rates,
+        ...(benchmarkAwardAmounts ? { benchmarkAwardAmounts } : {}),
+      },
+      compliance: {
+        setAside: mapSetAside(sol.setAsideType),
+        isServices: sol.isServices, // NULL handled above — a real boolean here
+        contractType: sol.contractType ?? "UNKNOWN",
+        totalGovtPayment: priceProxy,
+        paymentsToNonSimilarlySituatedSubs: nonSimSubsTotal,
+        subcontractCost,
+        totalCostOfWork: cost,
+        price: priceProxy,
+        cost,
+        awardDate: sol.responseDeadline ?? new Date(),
+        isDefense: sol.isDefense,
+        hasAdequatePriceCompetition: true, // also stored on the row; human-overridable
+        orgSocioEconomicCerts: [], // firm holds none (CLAUDE.md §6.7)
+        valueUsd: priceProxy,
+        lineItems: lines.map((l) => ({ costType: l.costType, markupPct: num(l.markupPct) })),
+        tmZeroMarkupCostTypes: dir.tmZeroMarkupCostTypes as ("LABOR" | "MATERIAL" | "ODC" | "SUBCONTRACT" | "TRAVEL")[],
+      },
+      bid: {
+        formType: "UCF_PART15",
+        // extendedAmount MUST equal unitRate × quantity or reconcilePricingMath BLOCKs (bid.ts). The DB
+        // extended_amount bakes in markup, so we recompute it here — the generated draft reconciles by
+        // construction; markup lives in the cost model, not the line arithmetic.
+        pricingMath: {
+          lines: lines.map((l, i) => ({
+            clin: String(i + 1),
+            unitRate: num(l.unitRate),
+            quantity: num(l.quantity),
+            extendedAmount: extLine(l),
+          })),
+          statedGrandTotal: lines.reduce((s, l) => s + extLine(l), 0),
+        },
+      },
+      submissionGates: {
+        counselConfirmed: !hasUnconfirmedCounselThresholds(dir),
+        actualRatesLoaded: !dir.provisionalRatesMode,
+        samRegistrationActive: dir.registration.samRegistrationActive,
+        cageAssigned: dir.registration.cageAssigned,
+        humanSignature: false,
+        counselReviewed: false,
+      },
+    });
+  } catch (err) {
+    if (err instanceof FailClosedError) {
+      await writeAudit(tx, {
+        orgId,
+        actorType: "SYSTEM",
+        action: "PROPOSAL_DRAFT_FAILED_CLOSED",
+        entityType: "solicitations",
+        entityId: solicitationId,
+        after: { stage: err.stage },
+      });
+      return { status: "FAILED_CLOSED" };
+    }
+    throw err; // transient → Inngest retries
+  }
+
+  const [inserted] = await tx
+    .insert(proposals)
+    .values({
+      orgId,
+      solicitationId,
+      selectedQuoteId: q.id,
+      contractType: lines[0]!.contractType, // concrete (FFP/TM/FFP_MILESTONE) — no UNKNOWN allowed here
+      status: "DRAFT", // submittedBy/At + counselReviewedBy/At stay NULL — the no-auto-submit invariant
+      pricingScenarios: pkg.pricing,
+      complianceChecklist: {
+        compliance: pkg.compliance,
+        bidChecklist: pkg.bidChecklist,
+        liveSubmission: pkg.liveSubmission,
+        blocking: pkg.blocking,
+        provisional: pkg.provisional,
+        watermark: pkg.watermark,
+        formProfile: pkg.formProfile,
+        disclaimer: pkg.disclaimer,
+      },
+      governmentPaymentBasis: money2(priceProxy),
+      nonSimilarlySituatedSubsTotal: money2(nonSimSubsTotal),
+      totalCostOfWork: money2(cost),
+      adequatePriceCompetition: true,
+    })
+    .returning({ id: proposals.id });
+
+  // Idempotency layer 2 / advance: only a PRICING_PENDING solicitation advances (the predicate is the
+  // guard). The sourcing_gate CHECK is already satisfied — it reached PRICING_PENDING with an approver.
+  await tx
+    .update(solicitations)
+    .set({ status: "PROPOSAL_DRAFT" })
+    .where(
+      and(
+        eq(solicitations.orgId, orgId),
+        eq(solicitations.id, solicitationId),
+        eq(solicitations.status, "PRICING_PENDING"),
+      ),
+    );
+
+  await writeAudit(tx, {
+    orgId,
+    actorType: "SYSTEM",
+    action: "PROPOSAL_DRAFTED",
+    entityType: "proposals",
+    entityId: inserted!.id,
+    after: {
+      proposalId: inserted!.id,
+      blocking: pkg.blocking,
+      provisional: pkg.provisional,
+      liveReady: pkg.liveSubmission.ready,
+    },
+  });
+  return { status: "DRAFTED", proposalId: inserted!.id };
 }
 
 /* ===================================================================================

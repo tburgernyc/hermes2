@@ -13,6 +13,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@hermes/ai": "workspace:*",
     "@hermes/core": "workspace:*",
     "@hermes/db": "workspace:*",
     "@hermes/inngest": "workspace:*",

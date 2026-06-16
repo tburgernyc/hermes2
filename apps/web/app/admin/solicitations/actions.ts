@@ -12,7 +12,7 @@
 import { revalidatePath } from "next/cache";
 
 import { and, eq, inArray, sql, solicitations, vendorQuotes, withOrg } from "@hermes/db";
-import { writeAudit } from "@hermes/inngest";
+import { inngest, writeAudit } from "@hermes/inngest";
 
 import { requireAdmin } from "@/lib/auth-guard";
 
@@ -151,5 +151,33 @@ export async function selectQuote(formData: FormData): Promise<void> {
     return row.solicitationId;
   });
 
-  if (solicitationId) revalidatePath(`/admin/solicitations/${solicitationId}`);
+  if (solicitationId) {
+    // Emit the human-gate event OUTSIDE the tx — the selection + its audit are the only correctness-
+    // critical facts and have already committed. The drafting workflow ANALYZES only (it never submits).
+    // Best-effort: a failed/unconfigured emit must NOT fail the human's selection (Prime-Directive-safe).
+    // In web-e2e the production `next start` has no INNGEST_EVENT_KEY, so send() throws — the catch keeps
+    // the selection green (no proposal is drafted because Inngest doesn't run in e2e).
+    try {
+      await inngest.send({
+        name: "hermes/quote.selected",
+        data: { orgId, solicitationId, quoteId, selectedBy: userId },
+      });
+    } catch (err) {
+      try {
+        await withOrg(orgId, (tx) =>
+          writeAudit(tx, {
+            orgId,
+            actorType: "SYSTEM",
+            action: "QUOTE_SELECTED_EMIT_FAILED",
+            entityType: "vendor_quotes",
+            entityId: quoteId,
+            after: { solicitationId, error: err instanceof Error ? err.message : String(err) },
+          }),
+        );
+      } catch {
+        // The selection already committed — the only correctness-critical fact; never let the failover throw.
+      }
+    }
+    revalidatePath(`/admin/solicitations/${solicitationId}`);
+  }
 }

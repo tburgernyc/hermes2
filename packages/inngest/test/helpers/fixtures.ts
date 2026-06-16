@@ -9,6 +9,7 @@ import {
   solicitations,
   users,
   vendorProspects,
+  vendorQuoteLineItems,
   vendorQuotes,
   type OrgDirectives,
   type Tx,
@@ -70,9 +71,16 @@ export async function insertSolicitation(
     scopeText?: string;
     sourcingApprovedBy?: string | null;
     responseDeadline?: Date | null;
+    isServices?: boolean | null;
+    setAsideType?: string;
+    contractType?: string | null;
+    naicsCode?: string | null;
+    isDefense?: boolean;
   } = {},
 ): Promise<string> {
   const approvedBy = opts.sourcingApprovedBy ?? null;
+  // The is_services_provenance CHECK requires a source whenever is_services is non-null.
+  const isServices = opts.isServices === undefined ? null : opts.isServices;
   const [row] = await tx
     .insert(solicitations)
     .values({
@@ -84,8 +92,53 @@ export async function insertSolicitation(
       sourcingApprovedBy: approvedBy,
       sourcingApprovedAt: approvedBy ? new Date() : null,
       responseDeadline: opts.responseDeadline ?? null,
+      isServices,
+      isServicesSource: isServices === null ? null : ("HUMAN" as never),
+      setAsideType: (opts.setAsideType ?? "NONE") as never,
+      contractType: (opts.contractType ?? null) as never,
+      naicsCode: opts.naicsCode ?? null,
+      isDefense: opts.isDefense ?? false,
     })
     .returning({ id: solicitations.id });
+  return row!.id;
+}
+
+/** Insert one quote line item. contract_type is denormalized + synced by a trigger; we set it to satisfy
+ *  the NOT NULL + the §6.2 T&M markup-lock CHECK (callers pass FFP unless testing the lock). */
+export async function insertLineItem(
+  tx: Tx,
+  orgId: string,
+  opts: {
+    quoteId: string;
+    costType?: string;
+    contractType?: string;
+    description?: string;
+    quantity?: string;
+    unitRate?: string;
+    markupPct?: string;
+    extendedAmount?: string | null;
+    similarlySituated?: boolean | null;
+    subSmallBusinessStatus?: string | null;
+    subSubcontractNaics?: string | null;
+  },
+): Promise<string> {
+  const [row] = await tx
+    .insert(vendorQuoteLineItems)
+    .values({
+      orgId,
+      quoteId: opts.quoteId,
+      costType: (opts.costType ?? "LABOR") as never,
+      contractType: (opts.contractType ?? "FFP") as never,
+      description: opts.description ?? "Senior engineer",
+      quantity: opts.quantity ?? "100",
+      unitRate: opts.unitRate ?? "150",
+      markupPct: opts.markupPct ?? "0",
+      extendedAmount: opts.extendedAmount ?? null,
+      similarlySituated: opts.similarlySituated ?? null,
+      subSmallBusinessStatus: (opts.subSmallBusinessStatus ?? null) as never,
+      subSubcontractNaics: opts.subSubcontractNaics ?? null,
+    })
+    .returning({ id: vendorQuoteLineItems.id });
   return row!.id;
 }
 

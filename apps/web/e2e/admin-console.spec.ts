@@ -44,7 +44,7 @@ async function adminUserId(db: Pool, oid: string): Promise<string> {
   return id;
 }
 
-async function loginAdmin(page: Page): Promise<void> {
+async function loginAdmin(page: Page, maxAttempts = 8): Promise<void> {
   await page.goto("/login");
   await page.fill('input[name="email"]', E2E_ADMIN_EMAIL);
   await page.fill('input[name="password"]', E2E_ADMIN_PASSWORD);
@@ -56,10 +56,11 @@ async function loginAdmin(page: Page): Promise<void> {
   // intermittently fails to PERSIST the refreshed session cookie (confirmed via CI diagnostics): the
   // step-up action still computes totpVerified=true and redirects to /admin, but the cookie isn't written,
   // so middleware bounces /admin back to /admin/totp. Fast retries don't help — the standalone server needs
-  // wall-clock time to warm — so we re-submit a fresh code with a short backoff. A beforeAll warmup burns
-  // most of the cold window up front; auth.spec.ts keeps the single-attempt path as the login canary.
+  // wall-clock TIME (not just more calls) to warm — so we re-submit a fresh code with a growing backoff.
+  // The beforeAll warmup relentlessly establishes a session up front to prove the server warm; once warm,
+  // per-test logins succeed on the first attempt. auth.spec.ts keeps the single-attempt path as the canary.
   const trace: string[] = [];
-  for (let attempt = 1; attempt <= 8; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (!page.url().includes("/admin/totp")) {
       await page.goto("/admin/totp");
       await page.waitForLoadState("domcontentloaded").catch(() => {});
@@ -78,22 +79,23 @@ async function loginAdmin(page: Page): Promise<void> {
     }
     trace.push(`#${attempt}:${new URL(page.url()).pathname}`);
     // Back off so a cold/contended standalone server gets wall-clock time to warm before the next try.
-    await page.waitForTimeout(Math.min(1000 * attempt, 3000));
+    await page.waitForTimeout(Math.min(1500 * attempt, 4000));
   }
 
-  throw new Error(`loginAdmin: no live admin session after 8 step-up attempts [${trace.join(", ")}]`);
+  throw new Error(`loginAdmin: no live admin session after ${maxAttempts} step-up attempts [${trace.join(", ")}]`);
 }
 
-// Burn the standalone server's cold-start window once, before any assertion, so the per-test logins run
-// warm. admin-console runs first in the suite (alphabetical), so warming here warms the whole run. The
-// warmup is best-effort — its only job is to exercise argon2 / the DB pool / RSC / the auth-session path.
+// Warm the standalone server's cold-start window BEFORE any assertion so the per-test logins run warm.
+// admin-console runs first in the suite (alphabetical), so warming here warms the whole run. On a very cold
+// runner next-auth's unstable_update needs many seconds before it reliably persists the refreshed session
+// cookie, so we relentlessly retry the throwaway login until it establishes — only then is the shared
+// server proven warm. The generous budget fails loudly only if the cookie never persists (a real bug).
 test.beforeAll(async ({ browser }) => {
+  test.setTimeout(180_000);
   const context = await browser.newContext();
   const page = await context.newPage();
   try {
-    await loginAdmin(page);
-  } catch {
-    // ignore — a cold warmup that doesn't fully settle still warms the server for the real tests
+    await loginAdmin(page, 24);
   } finally {
     await context.close();
   }

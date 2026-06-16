@@ -30,9 +30,10 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   // Cold-start headroom: the first tests run while the standalone server is still JIT/RSC-warming, and the
-  // admin login helper may re-drive the TOTP step-up a few times (see loginAdmin). 30s (the default) is too
-  // tight under that contention; 60s keeps real hangs bounded without flaking on a cold machine.
-  timeout: 60_000,
+  // admin login helper may re-drive the TOTP step-up several times with backoff (see loginAdmin). 30s (the
+  // default) is too tight under that contention; 90s keeps real hangs bounded without flaking on a cold
+  // machine. (The beforeAll warmup sets its own longer timeout to establish warmth up front.)
+  timeout: 90_000,
   globalSetup: "./e2e/global-setup.ts",
   use: { baseURL: BASE_URL },
   webServer: {

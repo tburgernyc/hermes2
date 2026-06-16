@@ -225,6 +225,60 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 — PR G: Admin operator console (read + human decisions) — **CODE COMPLETE** (2026-06-16)
+
+The first half of the admin dashboard (split G/H, operator-approved): the navigable console over the
+EXISTING pipeline — read surfaces + the human decisions, **no new AI generation / no new Inngest** (the
+select→draftBid workflow + the pricing/bid review surface are PR H). Every state-advancing action is a human
+behind `requireAdmin → withOrg → writeAudit`; none send outbound or emit a human-gate event (Prime Directive
+§2 preserved — the only gate emitters remain `admin/approvals/actions.ts`).
+
+**What shipped** (branch `phase-6-admin-console`, off `main @ 0838ca1`):
+- **`apps/web/lib/admin-board.ts`** (pure, unit-tested): `SOLICITATION_BOARD` (12 statuses → 5 phase lanes),
+  `groupByColumn`, `humanizeStatus`, `QUALIFIABLE_PROSPECT_STATUSES` + `isQualifiableProspectStatus` (the
+  single source shared by the prospects page button + the action guard — no UI/write drift).
+- **`apps/web/app/admin/layout.tsx`**: presentational nav shell (does NOT guard — the `/admin/totp`
+  enrollment/step-up pages render under it before the factor is satisfied; pages each `requireAdmin`).
+- **`admin/page.tsx`** rewritten to the morning-brief digest (triaged-awaiting-decision, outreach-pending,
+  pricing-review, 72h deadlines, overdue AR) with deep-links; keeps the `Admin Console` h1 the auth e2e asserts.
+- **`admin/solicitations/page.tsx`** kanban + **`[id]/page.tsx`** detail (triage verdict + AI-ranked quotes,
+  untrusted scope/notes/rationale rendered as DATA via JSX autoescape) + **`actions.ts`**: `markNoGo`
+  (TRIAGE_COMPLETE→NO_GO, human reject — never AI), `shortlistQuote`, `selectQuote` (records the winner;
+  **does NOT advance the solicitation or create a proposal/submit** — proven by e2e). `approveSourcing` is
+  imported UNCHANGED from `../approvals/actions` (still the canonical gate emitter).
+- **`admin/prospects/page.tsx`** + **`actions.ts`**: `addProspect` (trusted admin MANUAL write, boundary-
+  validated) + `markProspectQualified` (feeds `/admin/vendors` promotion).
+- **Tests:** `admin-board.test.ts` (10 pure unit) + `admin-console.spec.ts` (4 Playwright: board lanes;
+  no-go + audit; shortlist→select with the Prime-Directive assertion that select does NOT advance the
+  solicitation or write a `proposals` row; manual add→qualify + audit). The PRICING_PENDING seed must set
+  `sourcing_approved_by/at` (the `solicitations_sourcing_gate` CHECK is live — the test seed caught it).
+
+**Adversarial review** (Workflow: 4 lenses — prime-directive / security / typescript-react / database — each
+finding independently verified): **9 findings → 5 confirmed → 3 distinct issues, 0 CRITICAL, 0 HIGH** (the
+HIGH-tagged race verified down to MEDIUM). Fixed: **`selectQuote` TOCTOU** (read-then-write single-winner
+guard under READ COMMITTED → two concurrent selects of different shortlisted quotes could both win; now ONE
+atomic conditional `UPDATE … WHERE status='SHORTLISTED' AND NOT EXISTS(…SELECTED…)` — Postgres row-lock +
+correlated NOT EXISTS, no TOCTOU window); **`QUALIFIABLE` duplicated** in page+action → one shared constant in
+`admin-board.ts`; **bare `onConflictDoNothing()`** → clarifying comment (the suggested column-target "fix"
+would BREAK it — the dedupe index is the FUNCTIONAL `lower(contact_email)` partial index a column list can't
+name; bare is correct, null-email intentionally never deduped). 0 Prime-Directive/security breaches found.
+
+**Non-obvious decisions / footguns:** a `"use server"` module can only export async actions, so the shared
+qualify constant lives in `admin-board.ts` (not the action file). `selectQuote` uses a raw `sql` correlated
+subquery (`${vendorQuotes}` self-aliased `w`) because `notExists` isn't re-exported from `@hermes/db`. PR G
+adds NO Inngest/engine code, so the e2e stays Inngest-free (it exercises only the no-event DB+audit actions;
+`approveSourcing`'s `inngest.send` is unchanged Phase-4 code).
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/web` unit 10/10; web e2e **11/11** (4 auth +
+3 quote + 4 console). No `ci.yml` change (the new specs are auto-discovered by the existing `web-e2e` job).
+
+**NEXT — PR H** (pricing/bid decision-brief review + drafting): new `hermes/quote.selected` human-gate event
+(emitted only by `selectQuote`) → `draftProposalBidFn` Inngest workflow (`engine.draftBid` + `buildPricingBrief`,
+writes a `proposals` row, fail-closed) → `/admin/solicitations/[id]/proposal` review surface (renders stored
+pricing scenarios + compliance + §3 bid checklist; human counsel-review → ready → human-submit, all gated; no
+auto-submit; `readyForLiveSubmission` still blocks a real bid). Then the **vendor portal** (`VENDOR_INVITE`
+onboarding + logged-in submit + "my" reads). All `pendingCounsel`.
+
 ### Phase 6 — PR F: Bid-drafting module (deterministic §3 checklist + package assembler) — **CODE COMPLETE** (2026-06-16)
 
 **What shipped** (branch `phase-6-bid-drafting`, off `main @ 6ee5fda`; PR #11):

@@ -52,53 +52,36 @@ async function loginAdmin(page: Page): Promise<void> {
   await page.waitForURL(/\/admin\/totp$/);
 
   // Establish the TOTP step-up, confirming the session is actually LIVE (a guarded page renders) rather
-  // than trusting the redirect URL alone. On a cold/contended CI runner the first step-up requests are
-  // slow enough that the session sometimes isn't established on the first try and fast retries don't help
-  // (the server needs wall-clock time to warm), so we re-submit a fresh code with a short backoff. A
-  // beforeAll warmup burns most of the cold window up front; auth.spec.ts keeps the single-attempt path as
-  // the login-regression canary. (The per-attempt trace is logged so a cold failure shows its mode in CI.)
-  const diag: string[] = [];
+  // than trusting the redirect URL alone. On a cold/contended CI runner next-auth's unstable_update
+  // intermittently fails to PERSIST the refreshed session cookie (confirmed via CI diagnostics): the
+  // step-up action still computes totpVerified=true and redirects to /admin, but the cookie isn't written,
+  // so middleware bounces /admin back to /admin/totp. Fast retries don't help — the standalone server needs
+  // wall-clock time to warm — so we re-submit a fresh code with a short backoff. A beforeAll warmup burns
+  // most of the cold window up front; auth.spec.ts keeps the single-attempt path as the login canary.
+  const trace: string[] = [];
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     if (!page.url().includes("/admin/totp")) {
       await page.goto("/admin/totp");
       await page.waitForLoadState("domcontentloaded").catch(() => {});
     }
     if (page.url().includes("/admin/totp")) {
-      const code = generateTotpCode(E2E_ADMIN_TOTP_SECRET);
-      await page.fill('input[name="code"]', code);
+      await page.fill('input[name="code"]', generateTotpCode(E2E_ADMIN_TOTP_SECRET));
       await page.click('button[type="submit"]');
       await page.waitForLoadState("networkidle").catch(() => {});
-      const u = new URL(page.url());
-      const alert = await page
-        .getByRole("alert")
-        .textContent()
-        .catch(() => null);
-      const h1 = await page
-        .locator("h1")
-        .first()
-        .textContent()
-        .catch(() => null);
-      const line = `#${attempt} code=${code} -> ${u.pathname}${u.search} h1=${JSON.stringify(h1)} alert=${JSON.stringify(alert)}`;
-      diag.push(line);
-      console.log("[loginAdmin] " + line);
     }
     await page.goto("/admin");
-    const adminH1 = await page
-      .locator("h1")
-      .first()
-      .textContent()
-      .catch(() => null);
-    const lline = `   liveness: ${new URL(page.url()).pathname} h1=${JSON.stringify(adminH1)}`;
-    diag.push(lline);
-    console.log("[loginAdmin] " + lline);
     if (await page.getByRole("heading", { name: "Admin Console" }).isVisible().catch(() => false)) {
+      if (attempt > 1) {
+        console.log(`[loginAdmin] admin session established after ${attempt} attempts (cold-start warming)`);
+      }
       return;
     }
+    trace.push(`#${attempt}:${new URL(page.url()).pathname}`);
     // Back off so a cold/contended standalone server gets wall-clock time to warm before the next try.
     await page.waitForTimeout(Math.min(1000 * attempt, 3000));
   }
 
-  throw new Error("loginAdmin step-up never established a live admin session:\n" + diag.join("\n"));
+  throw new Error(`loginAdmin: no live admin session after 8 step-up attempts [${trace.join(", ")}]`);
 }
 
 // Burn the standalone server's cold-start window once, before any assertion, so the per-test logins run

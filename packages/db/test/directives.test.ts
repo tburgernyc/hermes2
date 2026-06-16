@@ -4,7 +4,13 @@
  * stricter-only (≤ 50). Untrusted input is rejected by parseDirectives.
  */
 import { describe, expect, it } from "vitest";
-import { assertNoSocioEconomicCerts, parseDirectives, type OrgDirectives } from "../src/directives.js";
+import {
+  assertNoSocioEconomicCerts,
+  defaultDirectives,
+  hasUnconfirmedCounselThresholds,
+  parseDirectives,
+  type OrgDirectives,
+} from "../src/directives.js";
 
 const validInput = {
   naicsCodes: ["541511", "541512"],
@@ -71,5 +77,44 @@ describe("orgDirectives boundary validation", () => {
       setAsideEligibility: { ...validInput.setAsideEligibility, sdvosb: true },
     } as unknown as OrgDirectives;
     expect(() => assertNoSocioEconomicCerts(sneaky)).toThrow(/socio-economic/i);
+  });
+});
+
+describe("orgDirectives provisional baseline + compliance config (PR D)", () => {
+  it("parseDirectives({}) yields the full provisional baseline", () => {
+    const d = defaultDirectives();
+    expect(d.naicsCodes).toContain("541511");
+    expect(d.setAsideEligibility.totalSmallBusiness).toBe(true);
+    expect(d.provisionalRatesMode).toBe(true);
+    expect(d.receiptsAveragingYears).toBe(5);
+    expect(d.thresholds.subcontractingTriggerUsd.value).toBe(350_000);
+    expect(d.thresholds.smallBusinessSizeStandardUsd.value).toBe(34_000_000);
+    expect(d.registration.samRegistrationActive).toBe(false);
+    expect(d.registration.cageAssigned).toBe(false);
+  });
+
+  it("T&M 0% markup cost types include ODC and TRAVEL (far-04)", () => {
+    expect(defaultDirectives().tmZeroMarkupCostTypes).toEqual(
+      expect.arrayContaining(["MATERIAL", "SUBCONTRACT", "ODC", "TRAVEL"]),
+    );
+  });
+
+  it("receiptsAveragingYears is locked to 5 (cannot be 3)", () => {
+    expect(() => parseDirectives({ ...validInput, receiptsAveragingYears: 3 })).toThrow();
+  });
+
+  it("hasUnconfirmedCounselThresholds is true on the provisional baseline", () => {
+    expect(hasUnconfirmedCounselThresholds(defaultDirectives())).toBe(true);
+  });
+
+  it("hasUnconfirmedCounselThresholds is false once every threshold is confirmed", () => {
+    const d = defaultDirectives();
+    const confirmed = {
+      ...d,
+      thresholds: Object.fromEntries(
+        Object.entries(d.thresholds).map(([k, v]) => [k, { ...v, pendingCounsel: false }]),
+      ),
+    } as OrgDirectives;
+    expect(hasUnconfirmedCounselThresholds(confirmed)).toBe(false);
   });
 });

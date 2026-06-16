@@ -15,7 +15,18 @@ import {
   UNTRUSTED_RULE,
 } from "./client.js";
 import { ProposalNarrative, ProspectScore, QuoteRanking, SowBrief, TriageVerdict } from "./schemas.js";
-import { buildComplianceChecklist, maxSubMarkupRatio, type ChecklistContext } from "./compliance.js";
+import {
+  buildComplianceChecklist,
+  maxSubMarkupRatio,
+  type ChecklistContext,
+  type SubmissionGates,
+} from "./compliance.js";
+import {
+  assembleBidPackage,
+  type BidChecklistContext,
+  type BidPackage,
+  type BidPricingInput,
+} from "./bid.js";
 
 const TRIAGE_RUBRIC =
   "You triage U.S. federal IT solicitations for a small-business prime under the 'Zero-Float' doctrine: " +
@@ -58,6 +69,23 @@ export interface Engine {
     title: string;
     narrative: ProposalNarrative;
     pricingTable: { label: string; amount: string }[];
+  }): Promise<{ fileId?: string; raw: unknown }>;
+  /** Draft a full bid package: model narrative + DETERMINISTIC pricing brief + compliance + §3 checklist. */
+  draftBid(input: {
+    solicitationTitle: string;
+    scopeText: string;
+    winningQuoteSummary: string;
+    pricing: BidPricingInput;
+    compliance: ChecklistContext;
+    bid: BidChecklistContext;
+    submissionGates: SubmissionGates;
+    provisionalRatesMode?: boolean;
+  }): Promise<BidPackage>;
+  /** Render an assembled bid package to DOCX/PDF (code-execution). Live-only; runs AFTER human review. */
+  exportBidDoc(input: {
+    format: "docx" | "pdf";
+    title: string;
+    package: BidPackage;
   }): Promise<{ fileId?: string; raw: unknown }>;
 }
 
@@ -161,28 +189,24 @@ export function createEngine(client: Anthropic): Engine {
 
     /* ---------- Proposal: narrative (Opus) + deterministic compliance ---------- */
     async draftProposal(input) {
-      const narrative = await callStructured(client, {
-        schema: ProposalNarrative,
-        schemaName: "ProposalNarrative",
-        system: cachedSystem(
-          "Draft a responsive federal proposal narrative (technical, management, past performance). Do " +
-            "not invent facts, certifications, or past performance. Do not assert legal conclusions. " +
-            UNTRUSTED_RULE,
-        ),
-        user: [
-          `Solicitation: ${input.solicitationTitle}`,
-          fenceUntrusted("sam.gov_solicitation", input.scopeText),
-          "Selected subcontractor approach:",
-          fenceUntrusted("winning_quote", input.winningQuoteSummary),
-          "Return the ProposalNarrative.",
-        ].join("\n\n"),
-        model: MODELS.draft,
-        maxTokens: 4096,
-      });
-
+      const narrative = await draftNarrative(client, input);
       const { checklist, blocking } = buildComplianceChecklist(input.compliance);
       const tmMarkupCap = maxSubMarkupRatio(input.compliance.contractType);
       return { narrative, complianceChecklist: checklist, blocking, tmMarkupCap };
+    },
+
+    /* ---------- Bid package: narrative (Opus) + DETERMINISTIC pricing/compliance/§3 checklist ---------- */
+    async draftBid(input) {
+      const narrative = await draftNarrative(client, input);
+      // Every gate below is deterministic (Prime Directive §2) — the model contributed PROSE only.
+      return assembleBidPackage({
+        narrative,
+        pricing: input.pricing,
+        compliance: input.compliance,
+        bid: input.bid,
+        submissionGates: input.submissionGates,
+        provisionalRatesMode: input.provisionalRatesMode,
+      });
     },
 
     /* ---------- Document export (code-execution → DOCX/PDF) ---------- */
@@ -208,7 +232,59 @@ export function createEngine(client: Anthropic): Engine {
       });
       return { fileId: findGeneratedFileId(resp), raw: resp };
     },
+
+    /* ---------- Bid document export (code-execution → DOCX/PDF, watermark + disclaimer) ---------- */
+    /**
+     * Renders an assembled bid package to a formatted file via the sandboxed code-execution tool. Runs only
+     * AFTER human review — never part of drafting. The PROVISIONAL watermark (if present) is stamped on
+     * every page and the anti-overclaim disclaimer (CLAUDE.md §6) is appended as a footer.
+     */
+    async exportBidDoc(input) {
+      const { exportSections, watermark, disclaimer } = input.package;
+      const resp = await client.messages.create({
+        model: MODELS.draft,
+        max_tokens: 4096,
+        tools: [{ type: "code_execution_20260120", name: "code_execution" }],
+        messages: [
+          {
+            role: "user",
+            content:
+              `Using python-docx (or a PDF library), generate a ${input.format.toUpperCase()} titled ` +
+              `"${input.title}". Render each section as a heading followed by its body, in order. If a ` +
+              `watermark is provided, stamp it on every page. Append the disclaimer as a footer. Output ` +
+              `the file.\n\n` +
+              JSON.stringify({ sections: exportSections, watermark: watermark ?? null, disclaimer }),
+          },
+        ],
+      });
+      return { fileId: findGeneratedFileId(resp), raw: resp };
+    },
   };
+}
+
+/** Draft the proposal narrative (Opus, prose only). Shared by draftProposal + draftBid. Untrusted-fenced. */
+function draftNarrative(
+  client: Anthropic,
+  input: { solicitationTitle: string; scopeText: string; winningQuoteSummary: string },
+): Promise<ProposalNarrative> {
+  return callStructured(client, {
+    schema: ProposalNarrative,
+    schemaName: "ProposalNarrative",
+    system: cachedSystem(
+      "Draft a responsive federal proposal narrative (technical, management, past performance). Do not " +
+        "invent facts, certifications, or past performance. Do not assert legal conclusions. " +
+        UNTRUSTED_RULE,
+    ),
+    user: [
+      `Solicitation: ${input.solicitationTitle}`,
+      fenceUntrusted("sam.gov_solicitation", input.scopeText),
+      "Selected subcontractor approach:",
+      fenceUntrusted("winning_quote", input.winningQuoteSummary),
+      "Return the ProposalNarrative.",
+    ].join("\n\n"),
+    model: MODELS.draft,
+    maxTokens: 4096,
+  });
 }
 
 /** Locate a generated file's id in the code-execution result blocks (loose: a live-only path). */
@@ -242,3 +318,5 @@ export const draftSOW: Engine["draftSOW"] = (input) => getEngine().draftSOW(inpu
 export const draftProposal: Engine["draftProposal"] = (input) => getEngine().draftProposal(input);
 export const exportProposalDoc: Engine["exportProposalDoc"] = (input) =>
   getEngine().exportProposalDoc(input);
+export const draftBid: Engine["draftBid"] = (input) => getEngine().draftBid(input);
+export const exportBidDoc: Engine["exportBidDoc"] = (input) => getEngine().exportBidDoc(input);

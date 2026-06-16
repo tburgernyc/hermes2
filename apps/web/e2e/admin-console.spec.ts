@@ -50,9 +50,33 @@ async function loginAdmin(page: Page): Promise<void> {
   await page.fill('input[name="password"]', E2E_ADMIN_PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/admin\/totp$/);
-  await page.fill('input[name="code"]', generateTotpCode(E2E_ADMIN_TOTP_SECRET));
-  await page.click('button[type="submit"]');
-  await page.waitForURL(/\/admin$/);
+
+  // Drive the TOTP step-up until the admin session is actually LIVE — not merely until the URL is /admin.
+  // Under server cold-start, next-auth's unstable_update→redirect step intermittently fails to persist the
+  // refreshed session cookie: the redirect still lands on /admin, but totpVerified isn't saved, so the next
+  // guarded page throws (requireAdmin) and renders nothing. A URL check alone can't see that — the original
+  // helper's waitForURL(/\/admin$/) passed even when /admin had 500'd — so each attempt CONFIRMS the session
+  // by loading a guarded page and asserting its content renders; if it didn't, we re-submit a fresh code
+  // (the cookie write re-runs). auth.spec.ts keeps the single-attempt path as the login-regression canary.
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    await page.goto("/admin");
+    const live = await page
+      .getByRole("heading", { name: "Admin Console" })
+      .isVisible()
+      .catch(() => false);
+    if (live) return;
+
+    await page.goto("/admin/totp");
+    await page.waitForURL(/\/admin\/totp$/, { timeout: 8000 }).catch(() => {});
+    if (!page.url().includes("/admin/totp")) continue; // bounced to /admin (verified) — re-check next loop
+    await page.fill('input[name="code"]', generateTotpCode(E2E_ADMIN_TOTP_SECRET));
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/admin(\/totp)?/, { timeout: 8000 }).catch(() => {});
+  }
+
+  // Exhausted retries — fail loudly with the real reason instead of a misleading downstream assertion.
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Admin Console" })).toBeVisible();
 }
 
 test("solicitations board renders the phase lanes and a triaged card", async ({ page }) => {

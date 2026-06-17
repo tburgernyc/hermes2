@@ -22,7 +22,11 @@ export default async function TotpStepUpPage({
     <main>
       <h1>Two-factor verification</h1>
       <p>Enter the 6-digit code from your authenticator app.</p>
-      {error ? <p role="alert">Invalid code. Try again.</p> : null}
+      {error === "throttled" ? (
+        <p role="alert">Too many attempts. Please wait a few minutes and try again.</p>
+      ) : error ? (
+        <p role="alert">Invalid code. Try again.</p>
+      ) : null}
       <form action={verifyTotpAction}>
         <label>
           Code

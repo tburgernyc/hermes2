@@ -177,6 +177,27 @@ These modules are decision-support, not magic. Build them to these honest specs.
 - Idempotent jobs; failure alerting (Sentry + email) plus an **external** dead-man's-switch on the cron
   heartbeat (an app that is down cannot alert on itself).
 - No secrets in repo; gitleaks in CI.
+- **Security headers + CSP (Phase 7b):** a strict, per-request **nonce'd `script-src` + `strict-dynamic`**
+  CSP (NO script `unsafe-inline`/`unsafe-eval`) from `middleware.ts`, plus the static set (HSTS,
+  `X-Frame-Options`, nosniff, Referrer-Policy, Permissions-Policy deny-list, COOP) from `next.config.ts`.
+  Applied **globally** — the middleware matcher spans ALL html routes so the public token/marketing pages
+  that bypass the auth gate are covered. `style-src` keeps `'unsafe-inline'` (admin/portal pages render
+  React inline `style={}` attributes; style injection ≠ script injection, and untrusted text is
+  JSX-autoescaped). HSTS + `upgrade-insecure-requests` are **https-gated** (off on the plaintext e2e
+  server). The browser CSP allowlists ONLY browser-reachable hosts (self, Tigris, Sentry ingest) — never
+  Anthropic/Resend/Voyage (§4). See `lib/security-headers.ts`.
+- **Rate-limiting (Phase 7b):** HTTP-layer per-IP throttle on **login** (in the Credentials `authorize`,
+  BEFORE the DB lockout — covers the Server Action and a direct `/api/auth/callback/credentials` POST;
+  throttled = `null`, no oracle) and a per-user throttle on **TOTP step-up**. The limiter is a
+  **single-instance, per-process** `Map` — acceptable at `min_machines_running=1`; **migrate to a durable
+  store (Redis/Upstash) before scaling past one Machine.** Client IP = `Fly-Client-IP` then the RIGHTMOST
+  `X-Forwarded-For` (never the spoofable leftmost).
+- **Observability (Phase 7b):** Sentry `beforeSend` **scrubs secrets + PII** (env-secret values, emails,
+  request headers/cookies, user identity) and **DROPS Postgres RLS / 42501 errors** (a boundary that
+  worked is a security signal, not a bug) — wire it before pointing a real DSN at it. `SENTRY_AUTH_TOKEN`
+  (sourcemap upload) is **CI-only, never shipped to Fly.** `/api/health` is the liveness probe; configure
+  an **external** monitor (healthchecks.io / cronitor / Better Stack) to alert if the `*/10m` heartbeat
+  stops within ~15 min.
 
 ---
 
@@ -224,6 +245,69 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
+
+### Phase 7 — PR 7b: Production hardening (CSP/headers + rate-limits + Sentry + heartbeat) — **CODE COMPLETE** (2026-06-17)
+
+Second slice of Phase 7 (7c = go-live docs + the Fly `release_command` migration step remains). The
+outward-facing app gets its security headers, a strict CSP, HTTP-layer auth rate-limiting, Sentry with a
+secret/PII scrub, and a `/api/health` liveness probe + external-heartbeat runbook. **Prime Directive §2
+untouched** — nothing here sends outbound or advances state; it only hardens the existing surfaces.
+
+**What shipped** (branch `phase-7b-hardening`, off `main @ 2345a3d`):
+- **`apps/web/lib/security-headers.ts`** (edge-safe, pure): `generateNonce` (Web Crypto + `btoa`, no
+  Buffer), `buildCsp(nonce, isHttps)`, `isHttpsRequest`, `STATIC_SECURITY_HEADERS`, `HSTS_VALUE`,
+  `PERMISSIONS_POLICY`. The CSP: strict **nonce'd `script-src 'self' 'nonce-…' 'strict-dynamic'`** (no
+  script `unsafe-inline`/`unsafe-eval`), `style-src 'self' 'unsafe-inline'` (React inline `style={}` on
+  admin/portal/token pages — verified 14 files), `frame-ancestors/object-src 'none'`, `base-uri/form-action
+  'self'`, `connect-src`/`img-src` allowlisting ONLY self + Tigris + Sentry ingest, `report-uri
+  /api/csp-report`, `upgrade-insecure-requests` https-only.
+- **`middleware.ts`** — matcher **broadened to ALL html routes** (excludes `/api`, `_next`, static
+  assets) so the public token/marketing pages get the CSP too; attaches the per-request nonce'd CSP (nonce
+  propagated via a request header so Next stamps its framework scripts) and preserves the exact `/admin`/
+  `/portal`/`/dashboard` auth-gate. **`next.config.ts`** — global `headers()` for the static set + an
+  **`has: x-forwarded-proto=https`-gated HSTS** (off on plaintext e2e/localhost), and `withSentryConfig`
+  (sourcemaps uploaded ONLY when `SENTRY_AUTH_TOKEN` is set — CI-only).
+- **Rate-limiting** — `lib/rate-limit.ts` gains a `{windowMs,maxHits,now}` options param (all 5 existing
+  one-arg callers unchanged). **Login** throttled in the Credentials `authorize(credentials, request)`
+  (per-IP, 10/min, BEFORE the DB lockout — covers the Server Action AND a direct
+  `/api/auth/callback/credentials` POST; throttled returns `null`, indistinguishable from a bad cred).
+  **TOTP step-up** throttled per-user (5 / 5 min) in `verifyTotpAction` (+ a `error=throttled` message).
+- **Sentry** (`@sentry/nextjs@^10`) — `instrumentation.ts` (+`onRequestError`), `instrumentation-client.ts`
+  (+`onRouterTransitionStart`, Replay OFF), `sentry.server/edge.config.ts`. **`lib/sentry-scrub.ts`**
+  `beforeSend`: clones (never mutates input) → **drops RLS/42501 errors** → redacts secret-keyed values +
+  masks emails in messages/exceptions/breadcrumbs/headers + strips `user.email/ip/username`; **fails
+  closed** (returns null) on any scrub error. Disabled no-op without a DSN (dev + CI). `/api/health`
+  (dep-free liveness 200) + `/api/csp-report` (IP-throttled 204 sink).
+- **Tests** — 46 web unit (added `lib/{rate-limit,sentry-scrub,security-headers}.test.ts`: limiter
+  window/maxHits/key-isolation + clientKey IP precedence; scrub redaction/email-mask/RLS-drop/PII/
+  immutability; CSP directive shape + nonce + https-gating + static set). New `e2e/security.spec.ts`:
+  asserts the CSP/static headers on a public response, **Next stamped `script[nonce]`**, **ZERO CSP
+  console violations** on `/`, `/login`, `/contact`, and an inline-styled invalid-invite page, and the
+  `/api/health` 200. No `ci.yml` change (auto-discovered by `build` + `web-e2e`).
+
+**Non-obvious decisions / footguns:**
+- **Strict nonce CSP ⇒ the 5 `force-static` marketing pages became `force-dynamic`** — a per-request nonce
+  cannot be baked into statically-prerendered scripts; Next reads the middleware-set nonce only when
+  rendering dynamically. Output HTML is identical; cost is negligible (brochure pages, warm machine).
+  **Locally verified** (built `next start`): `/` serves nonce'd framework scripts + the full header set;
+  `/login` + the inline-styled invite page render clean; `/api/health` = `{"status":"ok"}`.
+- **HSTS/`upgrade-insecure-requests` MUST be https-gated** — `next start` (and thus e2e) runs
+  `NODE_ENV=production` over http; an ungated HSTS/upgrade would force-https `http://localhost` and break
+  the suite. Gated on `x-forwarded-proto=https` (Fly stamps it) they are correct in prod, absent in e2e.
+- **Header split:** protocol-independent static headers + HSTS live in `next.config.ts headers()` (so they
+  cover `/api` + static assets the matcher skips); the nonce'd CSP lives in middleware (needs a per-request
+  value). No duplicate headers.
+- The single-instance per-process limiter + the `hermes_public` least-privilege role for the contact write
+  remain deferred (tech-debt #23).
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/web` unit **46/46**; manual `next start`
+header/nonce inspection green. The security e2e runs in CI (`web-e2e`).
+
+**NEXT — PR 7c** (go-live): the Fly `[deploy] release_command` Drizzle-migration step (compiled `migrate.js`
++ SQL files in the runner image; keeps prod DB creds OUT of CI), a `[http_service.checks]` health check on
+`/api/health`, and the go-live runbook (secrets list, branch-protection required checks, heartbeat-monitor +
+Sentry setup/verify, rollback). Then the operator Tier-1 deploy. All `pendingCounsel`; no real bid until
+`readyForLiveSubmission`.
 
 ### Phase 7 — PR 7a: Public marketing site (BurgerGov) + contact-inquiry backend — **CODE COMPLETE** (2026-06-17)
 

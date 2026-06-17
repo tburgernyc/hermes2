@@ -11,7 +11,9 @@ import { Credentials } from "./_components/Credentials";
 import { Cta } from "./_components/Cta";
 import styles from "./_components/marketing.module.css";
 
-export const dynamic = "force-static";
+// Dynamic (not static): the per-request CSP nonce from middleware requires per-request rendering so
+// Next stamps the nonce onto its framework scripts. Output HTML is otherwise identical. (See 7b CSP.)
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   description: SITE_DESCRIPTION,

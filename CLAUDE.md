@@ -246,6 +246,72 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 7 — PR 7c: Go-live — Fly release_command migrations + health check + runbook — **CODE COMPLETE** (2026-06-17)
+
+The final Phase-7 slice (closes the outward-facing/operational phase): the production **DB-migration step**
+is wired into the Fly deploy, the `/api/health` liveness probe gets its Fly health check, and DEPLOY.md grows
+the full go-live runbook. **Prime Directive §2 untouched** — pure deploy/ops plumbing; no model, no outbound,
+no state advance. The big find: the existing `Dockerfile` had **never built** (the image was never
+`fly deploy`'d), so 7c also fixes the builder.
+
+**What shipped** (branch `phase-7c-go-live`, off `main @ 9529a43`):
+- **`Dockerfile`** — (1) **builder fix (load-bearing):** `pnpm --filter @hermes/web build` →
+  `pnpm --filter "@hermes/web..." build`. The libs are imported via their package `exports` → `./dist/index.js`
+  and `.dockerignore` strips every `dist/` from the build context, so a clean image had NO compiled libs and
+  `next build` failed `Module not found: @hermes/{db,core,ai,inngest}` (empirically reproduced in a clean
+  worktree). The trailing `...` builds web + its workspace deps topologically (each lib's `tsc` first).
+  (2) **new `migrator` stage:** `pnpm --filter @hermes/db build && pnpm --filter @hermes/db deploy --prod
+  /migrator` → a self-contained bundle (own `node_modules` = pg/drizzle-orm/dotenv, the built `dist/migrate.js`,
+  the `migrations/` SQL tree) COPY'd into the runner at `/app/migrator`. (3) corepack pin `9.15.4 → 9.15.9`
+  (match `packageManager`).
+- **`fly.toml`** — `[deploy] release_command = "node /app/migrator/dist/migrate.js"` (runs the OWNER-role
+  migrations in a one-off Machine BEFORE new Machines take traffic; non-zero exit ABORTS the deploy;
+  idempotent) + `[[http_service.checks]]` on `/api/health` (30s interval, 10s grace, dep-free liveness).
+- **`.github/workflows/ci.yml`** — new **`docker-build`** job (`docker/build-push-action`, no push,
+  secret-free): the ONLY check that proves the multi-stage image (incl. the migrator bundle) assembles — the
+  other jobs build via turbo (libs first) and so cannot catch a Dockerfile-only regression. NON-required (a
+  Docker/runner hiccup must not block a PR).
+- **`DEPLOY.md`** — completed the `fly secrets` list (added `MIGRATION_DATABASE_URL`, `HERMES_ACTIVE_ORG_IDS`,
+  TOTP/token keys, outreach/Tigris) cross-referenced to `.env.example`; new **§7 go-live**: migration flow,
+  owner-vs-`hermes_app` roles + the `ALTER ROLE hermes_app LOGIN` step (preserved by `0001`'s `IF NOT EXISTS`),
+  `HERMES_ACTIVE_ORG_IDS` resolution, branch-protection required set (build/db/web-e2e/inngest/gitleaks
+  required; db-acceptance/audit/docker-build NOT), pre-deploy checklist, post-deploy verification, rollback.
+
+**Non-obvious decisions / footguns:**
+- **The Dockerfile was latently broken.** Never surfaced because `fly deploy` was never run (Phase-0 "Fly URL
+  responds" stayed pending). 7c verifies the artifact via the new `docker-build` CI job + a clean-worktree
+  reproduction (the only way to test the image — Docker isn't installed in the build shell).
+- **release_command keeps prod creds OUT of CI** (the deliberate alternative to a GitHub-Actions migration
+  job): `MIGRATION_DATABASE_URL` is a Fly secret; CI exercises the identical `migrate.ts` against throwaway DBs.
+- **migrate.js path resolution survives compilation:** `dist/migrate.js` → `../migrations` resolves to
+  `/app/migrator/migrations`; `repoRoot` → `/app` → `dotenv` no-ops on the absent `.env`. Verified by running
+  the bundle against a bogus DSN (reads the first SQL file, then fails only at connect).
+- **`hermes_app` LOGIN is operator-set + preserved:** `0001_roles.sql` CREATEs NOLOGIN only when absent, so an
+  `ALTER ROLE … LOGIN PASSWORD` set before the first deploy is never stripped by a re-run. The membership
+  grants the app needs ARE applied by every release_command run (resolves the old "confirm the grant applied"
+  follow-ups).
+
+**Adversarial review** (Workflow: 5 lenses — prime-directive/secrets · docker-build · fly-config · ci-docker-build
+· docs-fidelity — each finding refuted-by-default): **1 HIGH + 2 LOW confirmed, 0 CRITICAL.** The HIGH was a
+PRE-EXISTING latent blocker the new `docker-build` job exposed: the `deps` stage never COPY'd
+`packages/inngest/package.json` (added in Phase 4), so `pnpm install --frozen-lockfile` would have failed
+`ERR_PNPM_MISSING_PACKAGE_MANIFEST` and the image — and `fly deploy` — would never have built. Fixed (all six
+lockfile importers now COPY'd). LOW: disabled the build-push `.dockerbuild` record upload (so the job needs no
+`actions: write`); kept `setup-buildx@v3`/`build-push@v6` (known-good majors; non-required job). No
+§2/§4/§7/docs-fidelity breach found (fly TOML, role/secrets docs, rollback commands all verified accurate).
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; the migrator bundle builds + `node dist/migrate.js`
+resolves its SQL/deps (bogus-DSN run fails only at connect); clean-worktree repro proves the builder fix; the
+`docker-build` CI job builds the full image (post-fix). No app code changed → no new unit/e2e tests (migrate.ts
+is already gated by `db`/`inngest`/`web-e2e`).
+
+**Operator follow-ups (go-live):** follow DEPLOY.md §7 — set the full `fly secrets` (incl.
+`MIGRATION_DATABASE_URL` owner DSN + `hermes_app` LOGIN), rotate the exposed Neon password + `NEON_API_KEY`,
+resolve `HERMES_ACTIVE_ORG_IDS`, set branch-protection required checks, point `HEARTBEAT_URL` at an external
+monitor, then `fly deploy` (Tier-1). All `pendingCounsel`; no real bid until `readyForLiveSubmission`. Deferred
+tech-debt #23 (hermes_public/onboarding least-priv roles; durable rate-limit store; /admin/totp cold-start
+race) unchanged.
+
 ### Phase 7 — PR 7b: Production hardening (CSP/headers + rate-limits + Sentry + heartbeat) — **CODE COMPLETE** (2026-06-17)
 
 Second slice of Phase 7 (7c = go-live docs + the Fly `release_command` migration step remains). The

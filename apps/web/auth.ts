@@ -14,6 +14,10 @@ import {
 } from "@hermes/core";
 
 import authConfig, { type TokenClaims } from "./auth.config";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
+
+/** HTTP-layer login throttle: max attempts per IP per minute (distinct from the per-account DB lockout). */
+const LOGIN_MAX_PER_MIN = 10;
 
 /** Payload accepted by `unstable_update` for the TOTP step-up / enrollment flow. */
 interface TotpUpdate {
@@ -26,7 +30,22 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   providers: [
     Credentials({
       credentials: { email: {}, password: {} },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
+        // HTTP-layer per-IP throttle BEFORE any DB work — covers BOTH the login Server Action and a direct
+        // POST to /api/auth/callback/credentials (both funnel through here). Distinct from the per-account
+        // DB lockout below. A throttled attempt returns null — indistinguishable from a bad credential, so
+        // it leaks no oracle (CLAUDE.md §7). Fail-OPEN if the request/headers are unavailable (auth still
+        // requires valid creds + the DB lockout) — never fail closed and lock everyone out.
+        // Only throttle when we have an edge-trusted client identifier. On Fly, Fly-Client-IP is ALWAYS
+        // stamped, so production always throttles by real IP. Off-Fly (local/e2e/direct) both are absent —
+        // a shared `login:unknown` bucket would throttle unrelated clients together while protecting
+        // nothing, so we skip it there.
+        const ip = request?.headers?.get("fly-client-ip") ?? null;
+        const xff = request?.headers?.get("x-forwarded-for") ?? null;
+        if ((ip || xff) && !rateLimit(clientKey(ip, xff, "login"), { maxHits: LOGIN_MAX_PER_MIN })) {
+          return null;
+        }
+
         const email = typeof credentials?.email === "string" ? credentials.email.trim() : "";
         const password = typeof credentials?.password === "string" ? credentials.password : "";
         if (!email || !password) return null;

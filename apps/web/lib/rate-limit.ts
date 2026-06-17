@@ -6,8 +6,8 @@
  * and the RESTRICTIVE token RLS policy. Replace with a shared store (Redis/Upstash) if multi-instance
  * throttling is ever required (deferred — YAGNI).
  */
-const WINDOW_MS = 60_000; // 1 minute
-const MAX_HITS = 10; // per key per window
+const DEFAULT_WINDOW_MS = 60_000; // 1 minute
+const DEFAULT_MAX_HITS = 10; // per key per window
 
 interface Bucket {
   count: number;
@@ -16,14 +16,27 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
-/** Returns true if the request is allowed; false if the key has exceeded MAX_HITS this window. */
-export function rateLimit(key: string, now: number = Date.now()): boolean {
+/** Per-route throttle tuning. Defaults reproduce the original public-route limit (10 / minute / key). */
+export interface RateLimitOptions {
+  /** Sliding-window length in ms (default 60_000). */
+  windowMs?: number;
+  /** Max allowed hits per key per window (default 10). */
+  maxHits?: number;
+  /** Injectable clock for tests (default Date.now()). */
+  now?: number;
+}
+
+/** Returns true if the request is allowed; false if the key has exceeded maxHits this window. */
+export function rateLimit(key: string, opts: RateLimitOptions = {}): boolean {
+  const windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
+  const maxHits = opts.maxHits ?? DEFAULT_MAX_HITS;
+  const now = opts.now ?? Date.now();
   const existing = buckets.get(key);
   if (!existing || now >= existing.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
+    buckets.set(key, { count: 1, resetAt: now + windowMs });
     return true;
   }
-  if (existing.count >= MAX_HITS) return false;
+  if (existing.count >= maxHits) return false;
   buckets.set(key, { count: existing.count + 1, resetAt: existing.resetAt });
   return true;
 }

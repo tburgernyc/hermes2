@@ -92,11 +92,17 @@ fly secrets set \
   TIGRIS_ACCESS_KEY_ID="..." \
   TIGRIS_SECRET_ACCESS_KEY="..." \
   SAM_API_KEY="..." \
-  SENTRY_DSN="..."
+  SENTRY_DSN="..." \
+  NEXT_PUBLIC_SENTRY_DSN="..."
 
 # Verify which secrets exist (shows names + digests only, never values):
 fly secrets list
 ```
+
+> **Sentry env (§6).** `SENTRY_DSN` (server/edge) + `NEXT_PUBLIC_SENTRY_DSN` (browser) are the SAME DSN
+> value — it is **not** a secret (it ships in the client bundle by design); leave both unset to disable
+> Sentry. `SENTRY_AUTH_TOKEN` / `SENTRY_ORG` / `SENTRY_PROJECT` (sourcemap upload) belong in **GitHub
+> Actions secrets ONLY — never `fly secrets`** (they must never reach the running app).
 
 > `PORT` is intentionally **not** a secret — it's set in `fly.toml [env]` so the
 > Next.js standalone server binds `0.0.0.0:3000`. `AUTH_URL` should be the real
@@ -170,6 +176,46 @@ EOF
 
 After the PR is green and Fly responds, mark Phase 0 acceptance criteria done in
 `PROJECT_PLAN.md` and merge.
+
+---
+
+## 6. Production hardening — Sentry + external heartbeat (Phase 7b)
+
+### Sentry (error monitoring)
+
+1. Create a Sentry project (platform: Next.js). Copy its **DSN**.
+2. Set `SENTRY_DSN` + `NEXT_PUBLIC_SENTRY_DSN` (same DSN) via `fly secrets` (see §2). With no DSN, Sentry
+   is a clean no-op — safe to defer.
+3. For readable stack traces, add **`SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`** as **GitHub
+   Actions repo secrets** (Settings → Secrets → Actions). The build uploads source maps only when the
+   token is present; it is **CI-only and must never be a Fly secret** (it must not reach the app).
+4. Verify: trigger a test error after deploy and confirm it appears in Sentry **with secrets/PII scrubbed**
+   (no `ANTHROPIC_API_KEY`/`DATABASE_URL`/emails) and that RLS/`42501` errors are **absent** (dropped by
+   design — they are security signals, visible in `fly logs`, not alerts). See `apps/web/lib/sentry-scrub.ts`.
+
+### External dead-man's-switch (the app cannot alert on its own outage)
+
+The `cron-heartbeat` Inngest function pings `HEARTBEAT_URL` every ~10 minutes. You must point that at an
+**external** monitor so an outage is caught even when the app (and its own alerting) is down:
+
+1. Create a **cron/heartbeat monitor** at [healthchecks.io](https://healthchecks.io) (free) — or
+   cronitor.io / Better Stack. Set the **period to 10 min** and the **grace to ~5 min** (alert if no ping
+   for ~15 min).
+2. Copy its ping URL into `HEARTBEAT_URL` (`fly secrets set HEARTBEAT_URL="https://hc-ping.com/<uuid>"`).
+   The heartbeat requires `https://`.
+3. Add a notification channel (email / SMS / Slack) on that monitor. Verify: confirm a ping lands within
+   10 min of deploy, then (optionally) pause the app briefly and confirm the monitor alerts.
+
+### Liveness probe
+
+`GET /api/health` returns `{"status":"ok"}` (dependency-free — liveness, not readiness). The Fly health
+check that hits it is wired in **Phase 7c** (`fly.toml [http_service.checks]`); until then verify manually:
+
+```bash
+curl -s https://hermes2.fly.dev/api/health   # -> {"status":"ok"}
+# Spot-check the security headers + CSP are present:
+curl -sI https://hermes2.fly.dev/ | grep -iE "content-security-policy|strict-transport|x-frame|x-content-type|referrer-policy|permissions-policy"
+```
 
 ---
 

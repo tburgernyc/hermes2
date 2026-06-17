@@ -7,7 +7,8 @@ import { Cta } from "../_components/Cta";
 import { PlaceholderBadge } from "../_components/PlaceholderBadge";
 import styles from "../_components/marketing.module.css";
 
-export const dynamic = "force-static";
+// Dynamic (not static): the per-request CSP nonce from middleware requires per-request rendering. (7b)
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Capabilities",

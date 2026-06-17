@@ -44,12 +44,20 @@ const EXPECTED_POLICIES = new Set<string>([
   "users.users_auth_lockout",
   // hermes_vendor per-vendor isolation (0009_vendor_role.sql).
   ...VENDOR_SCOPED_TABLES.flatMap((t) => [`${t}.${t}_vendor_org`, `${t}.${t}_vendor_scope`]),
+  // hermes_vendor RFQ browse (0010_vendor_reads.sql): a PERMISSIVE org-scoped SELECT only —
+  // solicitations are shared in-org, so there is deliberately NO restrictive per-vendor scope here.
+  "solicitations.solicitations_vendor_org",
+  // hermes_vendor quote-line-items read (0010): org PERMISSIVE + an EXISTS-to-parent RESTRICTIVE
+  // scope (line items have no vendor_id; they inherit isolation from the parent quote).
+  "vendor_quote_line_items.vendor_quote_line_items_vendor_org",
+  "vendor_quote_line_items.vendor_quote_line_items_vendor_scope",
 ]);
 
 const RESTRICTIVE_POLICIES = new Set<string>([
   "vendor_quotes.vendor_quotes_token_prospect_only",
   "documents.documents_token_prospect_only",
   ...VENDOR_SCOPED_TABLES.map((t) => `${t}.${t}_vendor_scope`),
+  "vendor_quote_line_items.vendor_quote_line_items_vendor_scope",
 ]);
 
 interface PrivRow {
@@ -67,10 +75,13 @@ interface PrivRow {
   token_audit_update: boolean;
   token_audit_delete: boolean;
   token_proposals_insert: boolean;
-  // hermes_vendor: a read-only vendor-facing surface (0009); writes are Phase 6.
+  // hermes_vendor: a read-only vendor-facing surface (0009 + 0010 RFQ browse); writes are PR K.
   vendor_quote_select: boolean;
   vendor_quote_insert: boolean;
   vendor_vendors_select: boolean;
+  vendor_solicitations_select: boolean;
+  vendor_line_items_select: boolean;
+  vendor_line_items_insert: boolean;
   vendor_users_select: boolean;
   vendor_prospects_select: boolean;
 }
@@ -160,6 +171,9 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
            has_table_privilege('hermes_vendor','vendor_quotes','SELECT')   AS vendor_quote_select,
            has_table_privilege('hermes_vendor','vendor_quotes','INSERT')   AS vendor_quote_insert,
            has_table_privilege('hermes_vendor','vendors','SELECT')         AS vendor_vendors_select,
+           has_table_privilege('hermes_vendor','solicitations','SELECT')   AS vendor_solicitations_select,
+           has_table_privilege('hermes_vendor','vendor_quote_line_items','SELECT') AS vendor_line_items_select,
+           has_table_privilege('hermes_vendor','vendor_quote_line_items','INSERT') AS vendor_line_items_insert,
            has_table_privilege('hermes_vendor','users','SELECT')           AS vendor_users_select,
            has_table_privilege('hermes_vendor','vendor_prospects','SELECT') AS vendor_prospects_select`,
       );
@@ -242,8 +256,11 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     expect(privs).toBeDefined();
     expect(privs?.vendor_quote_select).toBe(true); // reads its own quotes (RLS-narrowed per vendor)
     expect(privs?.vendor_vendors_select).toBe(true); // reads its own vendor row
-    // Writes (logged-in quote submit, doc upload) are Phase-6 — no INSERT yet.
+    expect(privs?.vendor_solicitations_select).toBe(true); // browses open in-org RFQs (0010, org-scoped)
+    expect(privs?.vendor_line_items_select).toBe(true); // reads the lines of its own quotes (0010)
+    // Writes (logged-in quote submit, doc upload) are PR K — no INSERT yet, on the quote OR its lines.
     expect(privs?.vendor_quote_insert).toBe(false);
+    expect(privs?.vendor_line_items_insert).toBe(false);
     // A vendor role can never read the users table (the link/identity) or other firms' prospects.
     expect(privs?.vendor_users_select).toBe(false);
     expect(privs?.vendor_prospects_select).toBe(false);

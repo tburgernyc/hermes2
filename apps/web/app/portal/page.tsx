@@ -2,7 +2,13 @@ import type { JSX } from "react";
 
 import { requireVendor } from "@/lib/auth-guard";
 
-/** Vendor portal landing. Middleware already gates this; requireVendor is defense in depth. */
+export const dynamic = "force-dynamic";
+
+/**
+ * Vendor portal landing. Middleware already gates this; requireVendor is defense in depth. force-dynamic
+ * because the rendered linkage state (linked vs. pending) depends on the session vendorId — a static
+ * cache could show a freshly-linked vendor a stale "pending vetting" message.
+ */
 export default async function PortalHome(): Promise<JSX.Element> {
   const session = await requireVendor();
   return (

@@ -20,6 +20,7 @@ import {
 import { requireAdmin } from "@/lib/auth-guard";
 
 import { linkVendorUser, promoteProspectToVendor, vetVendor } from "./actions";
+import { InviteForm } from "./invite-form";
 
 export const dynamic = "force-dynamic";
 
@@ -136,6 +137,21 @@ export default async function VendorsPage(): Promise<JSX.Element> {
             </label>{" "}
             <button type="submit">Link</button>
           </form>
+        )}
+      </section>
+
+      <section>
+        <h2>Invite a vendor user</h2>
+        {vettedVendors.length === 0 ? (
+          <p>Vet a vendor first, then you can invite a user to onboard onto it.</p>
+        ) : (
+          <>
+            <p>
+              Generates a single-use onboarding link. Copy it and send it to the vendor yourself — the
+              app never emails on its own.
+            </p>
+            <InviteForm vendors={vettedVendors} />
+          </>
         )}
       </section>
     </main>

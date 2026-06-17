@@ -52,6 +52,7 @@ const EXPECTED_CHECKS: string[] = [
   "documents_sha256_format",
   "documents_owner_exactly_one",
   "documents_owner_matches_type",
+  "vendor_invites_accept_pair",
 ];
 
 // confdeltype: 'r' = RESTRICT, 'c' = CASCADE.
@@ -105,6 +106,9 @@ const EXPECTED_UNIQUE = [
   "proposals_org_id_id_key",
   "milestones_org_id_id_key",
   "contracts_org_id_id_key",
+  // vendor_invites: both are FULL (non-partial) unique indexes — token_jti/token_hash are NOT NULL.
+  "vendor_invites_jti_key",
+  "vendor_invites_token_hash_key",
 ];
 
 interface IndexInfo {

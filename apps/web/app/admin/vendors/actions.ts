@@ -9,8 +9,20 @@
  * recorded vetter). This is the minimal action surface; the full vetting-queue UI is Phase 6.
  */
 import { revalidatePath } from "next/cache";
+import type { Session } from "next-auth";
+import { z } from "zod";
 
-import { and, eq, isNull, users, vendorProspects, vendors, withOrg } from "@hermes/db";
+import { hashToken, mintToken, verifyToken } from "@hermes/core";
+import {
+  and,
+  eq,
+  isNull,
+  users,
+  vendorInvites,
+  vendorProspects,
+  vendors,
+  withOrg,
+} from "@hermes/db";
 import { writeAudit } from "@hermes/inngest";
 
 import { requireAdmin } from "@/lib/auth-guard";
@@ -174,4 +186,96 @@ export async function linkVendorUser(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/admin/vendors");
+}
+
+const INVITE_TTL_DAYS = 14;
+
+const inviteEmailSchema = z.string().trim().toLowerCase().email().max(254);
+
+/** Public base URL for the copyable /invite link (trailing slashes stripped). */
+function appBaseUrl(): string {
+  return (process.env.APP_BASE_URL ?? "https://burgergov.com").replace(/\/+$/, "");
+}
+
+/** useActionState result: the minted link is shown ONCE (we persist only its hash). */
+interface InviteState {
+  ok: boolean;
+  link?: string;
+  email?: string;
+  error?: string;
+}
+
+/**
+ * Mint a single-use VENDOR_INVITE onboarding link for a VETTED vendor (1 vendor : N users). The admin
+ * click IS the §2 human action; delivery is COPY-LINK — zero automated outbound, so the action just
+ * returns the link for the admin to send through their own channel. Only the token HASH + jti are
+ * persisted (§7); the raw token is surfaced once here and never stored. useActionState-compatible.
+ */
+export async function inviteVendorUser(
+  _prev: InviteState,
+  formData: FormData,
+): Promise<InviteState> {
+  let session: Session;
+  try {
+    session = await requireAdmin();
+  } catch {
+    return { ok: false, error: "Your session is no longer authorized. Sign in again." };
+  }
+  const orgId = session.user.orgId;
+  const adminId = session.user.id;
+
+  let vendorId: string;
+  let email: string;
+  try {
+    vendorId = readId(formData, "vendorId");
+    email = inviteEmailSchema.parse(formData.get("email"));
+  } catch {
+    return { ok: false, error: "Select a vetted vendor and enter a valid email address." };
+  }
+
+  // Mint first (no DB), then read our own freshly-minted token for its jti/exp so the stored row and
+  // the link agree exactly. vendorId/orgId come from the admin session, never a client-asserted value.
+  const token = mintToken({ purpose: "VENDOR_INVITE", orgId, vendorId, ttlDays: INVITE_TTL_DAYS });
+  const payload = verifyToken(token, "VENDOR_INVITE");
+
+  try {
+    await withOrg(orgId, async (tx) => {
+      // A user can be invited onto a vendor only once it exists in THIS org and is VETTED.
+      const vendorRows = await tx
+        .select({ id: vendors.id })
+        .from(vendors)
+        .where(and(eq(vendors.orgId, orgId), eq(vendors.id, vendorId), eq(vendors.status, "VETTED")))
+        .limit(1);
+      if (vendorRows.length === 0) throw new Error("vendor not vetted");
+
+      await tx.insert(vendorInvites).values({
+        orgId,
+        vendorId,
+        invitedEmail: email,
+        tokenHash: hashToken(token), // §7: store the hash, never the raw token
+        tokenJti: payload.jti,
+        expiresAt: new Date(payload.exp),
+        createdBy: adminId,
+      });
+
+      await writeAudit(tx, {
+        orgId,
+        actorType: "ADMIN",
+        actorUserId: adminId,
+        actorEmail: session.user.email ?? null,
+        action: "VENDOR_INVITE_CREATED",
+        entityType: "vendors",
+        entityId: vendorId,
+      });
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error && err.message === "vendor not vetted"
+        ? "That vendor is not vetted yet."
+        : "Could not create the invite. Please try again.";
+    return { ok: false, error: message };
+  }
+
+  revalidatePath("/admin/vendors");
+  return { ok: true, link: `${appBaseUrl()}/invite/${token}`, email };
 }

@@ -33,3 +33,33 @@ describe("portal tokens", () => {
     expect(() => verifyToken(expired, "QUOTE_SUBMISSION")).toThrow(/expired/);
   });
 });
+
+describe("vendor-invite tokens", () => {
+  it("mints and verifies a vendor-scoped invite (vendor present, NO prospect)", () => {
+    const token = mintToken({ purpose: "VENDOR_INVITE", orgId: "org-1", vendorId: "vendor-9" });
+    const payload = verifyToken(token, "VENDOR_INVITE");
+    expect(payload.org).toBe("org-1");
+    expect(payload.vendor).toBe("vendor-9");
+    expect(payload.prospect).toBeUndefined();
+  });
+
+  it("rejects an invite token used to submit a quote, and a quote token on the invite route", () => {
+    const invite = mintToken({ purpose: "VENDOR_INVITE", orgId: "org-1", vendorId: "vendor-9" });
+    expect(() => verifyToken(invite, "QUOTE_SUBMISSION")).toThrow(TokenError);
+    const quote = mintToken({ purpose: "QUOTE_SUBMISSION", orgId: "org-1", prospectId: "prospect-1" });
+    expect(() => verifyToken(quote, "VENDOR_INVITE")).toThrow(TokenError);
+  });
+
+  it("refuses to mint an invite without a vendor, or carrying a prospect", () => {
+    expect(() => mintToken({ purpose: "VENDOR_INVITE", orgId: "org-1" })).toThrow(/requires vendorId/);
+    expect(() =>
+      mintToken({ purpose: "VENDOR_INVITE", orgId: "org-1", vendorId: "v", prospectId: "p" }),
+    ).toThrow(/must not carry a prospect/);
+  });
+
+  it("refuses to mint a prospect-scoped token that carries a vendor", () => {
+    expect(() =>
+      mintToken({ purpose: "QUOTE_SUBMISSION", orgId: "org-1", prospectId: "p", vendorId: "v" }),
+    ).toThrow(/must not carry a vendor/);
+  });
+});

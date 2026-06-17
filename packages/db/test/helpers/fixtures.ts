@@ -143,6 +143,42 @@ export async function insertProposal(
   return firstId(result);
 }
 
+/** A pending (or, via opts, already-claimed) VENDOR_INVITE row. created_by must be an existing user. */
+export async function insertVendorInvite(
+  client: PoolClient,
+  orgId: string,
+  opts: {
+    vendorId: string;
+    createdBy: string;
+    invitedEmail?: string;
+    tokenHash?: string;
+    tokenJti?: string;
+    expiresAt?: Date;
+    acceptedAt?: Date | null;
+    acceptedUserId?: string | null;
+  },
+): Promise<string> {
+  const n = uniq();
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO vendor_invites
+       (org_id, vendor_id, invited_email, token_hash, token_jti, expires_at,
+        created_by, accepted_at, accepted_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [
+      orgId,
+      opts.vendorId,
+      opts.invitedEmail ?? `invitee-${n}@example.test`,
+      opts.tokenHash ?? `hash-${n}`,
+      opts.tokenJti ?? `jti-${n}`,
+      opts.expiresAt ?? new Date(Date.now() + 86_400_000),
+      opts.createdBy,
+      opts.acceptedAt ?? null,
+      opts.acceptedUserId ?? null,
+    ],
+  );
+  return firstId(result);
+}
+
 /** A DRAFT outreach campaign (the pre-approval state). Tests drive it toward APPROVED/SENT. */
 export async function insertOutreach(
   client: PoolClient,

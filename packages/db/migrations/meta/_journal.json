@@ -15,6 +15,13 @@
       "when": 1781544566770,
       "tag": "0001_broken_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781654044318,
+      "tag": "0002_freezing_kronos",
+      "breakpoints": true
     }
   ]
 }

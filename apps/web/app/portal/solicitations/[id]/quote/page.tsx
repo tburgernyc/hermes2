@@ -76,7 +76,7 @@ export default async function VendorQuotePage({
     <main>
       <h1>Submit a quote</h1>
       {status && STATUS_MESSAGE[status] ? (
-        <p role="alert" style={{ color: "#b00" }}>
+        <p role="alert" data-testid="submit-status" style={{ color: "#b00" }}>
           {STATUS_MESSAGE[status]}
         </p>
       ) : null}

@@ -186,7 +186,8 @@ test.describe("vendor portal submit (PR K)", () => {
 
     // Re-open the form and submit again → the unique index rejects it (23505 → "duplicate" status).
     await fillAndSubmit(page, solId);
-    await expect(page.getByRole("alert")).toContainText("already submitted");
+    // Target the status alert by testid — getByRole("alert") also matches Next's route announcer.
+    await expect(page.getByTestId("submit-status")).toContainText("already submitted");
   });
 
   test("the firm closing an RFQ blocks a logged-in submit (status re-checked at WRITE time)", async ({
@@ -213,7 +214,7 @@ test.describe("vendor portal submit (PR K)", () => {
     await page.click('button[type="submit"]');
 
     // Refused: the "closed" status message, and the form is gone (the now-closed RFQ shows rfq-closed).
-    await expect(page.getByRole("alert")).toContainText("no longer accepting");
+    await expect(page.getByTestId("submit-status")).toContainText("no longer accepting");
     await expect(page.getByTestId("rfq-closed")).toBeVisible();
 
     // The decisive proof: NO quote row was written for the closed RFQ — the gate blocked the write.

@@ -225,6 +225,77 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 — Vendor portal PR K: logged-in vendor submit — **CODE COMPLETE — CLOSES PHASE 6** (2026-06-17)
+
+The last vendor-portal slice: a logged-in VENDOR submits their OWN quote (PDF + line items) against an open
+in-org RFQ → a `vendor_quotes` row at status `SUBMITTED`, all under `withVendorRole` (hermes_vendor). The
+authenticated mirror of the Phase-5 tokenized public path — same magic-byte upload + one-atomic-tx shape,
+but identity (orgId/vendorId) comes from the SESSION, never the form. **Prime Directive (§2) untouched:** a
+human submits their own quote (SUBMITTED is the vendor's submission, not a firm-workflow advance); no model
+runs; the admin still shortlists/selects. INSERT-only for the vendor (no UPDATE/DELETE grant).
+
+**What shipped** (branch `phase-6-vendor-submit`, off `main @ 9b497ee`):
+- **`@hermes/db` migration `0011_vendor_writes.sql`** (idempotent, after 0010; `migrate.ts` step 12;
+  `prosecdef` assertion intact): `GRANT INSERT` on `vendor_quotes` / `vendor_quote_line_items` / `documents`
+  to hermes_vendor — these ACTIVATE the dormant WITH CHECK arms already authored read-shaped in 0009
+  (`vendor_quotes_vendor_scope`, vendor_id=GUC) and 0010 (line-items + documents EXISTS-to-parent). Plus the
+  **audit append**: `GRANT INSERT ON audit_log` + a NEW `audit_log_vendor_append` PERMISSIVE FOR-INSERT
+  org-scoped policy — UNLIKE the token path (0007 grant-only), the `audit_log` `tenant_isolation` policy
+  (0003) names only hermes_app/hermes_token, so the in-tx vendor audit row needs its OWN policy or it fails
+  RLS. Plus the **one-active-quote** partial unique index `vendor_quotes_one_active_per_vendor`
+  `(org_id, solicitation_id, vendor_id) WHERE vendor_id IS NOT NULL AND status NOT IN ('WITHDRAWN','REJECTED')`
+  — structural/race-free (a read-then-write pre-check has the PR-G TOCTOU window); kept in MANUAL SQL
+  (co-located with the write RLS, invisible to drizzle-kit, no drift).
+- **`@hermes/core`**: `vendorQuoteDocumentKey(orgId, vendorId, quoteId, ext)` → `orgs/{org}/vendors/{vendor}/
+  quotes/{id}.{ext}` (vendor-pathed; the prospect-pathed `quoteDocumentKey` can't be reused) + `storage.test.ts`.
+- **`apps/web`**: `/portal/solicitations/[id]/quote` page + `actions.ts`. `submitQuote` = `requireVendorWithVendorId`
+  (vendorId from SESSION) → `validateUpload` (magic bytes) → app-side `randomUUID` quote id → store bytes →
+  ONE `withVendorRole` tx that **re-checks the solicitation is an OPEN RFQ at WRITE time** (`OPEN_RFQ_STATUSES`,
+  the shared window from PR J — app-layer gate, no DB backstop) + inserts quote (vendorId, prospectId NULL,
+  tokenJti NULL, SUBMITTED) + lines + VENDOR_QUOTE document + `writeAudit(actorType VENDOR, actorUserId)` →
+  best-effort `inngest.send('hermes/quote.submitted')`. Browse page gains a "Submit quote" link. Untrusted
+  notes render as data (JSX autoescape); redirect-status surfacing.
+- **Tests**: 10 DB negatives (`negative.vendor-submit.test.ts` — can't name another vendor / impersonate a
+  prospect / attach line|doc to a competitor's quote (42501); the legit own-submit happy path incl. the
+  DEFINER trigger overwriting contract_type under the low-trust role; one-active 23505; terminal
+  REJECTED+WITHDRAWN resubmit allowed; audit append works incl. the actor_user_id FK without users SELECT,
+  but audit SELECT denied + cross-org append denied). e2e `portal-submit.spec.ts` (OWNER-DSN read-back:
+  vendor_id=session, prospect_id NULL, token_jti NULL, SUBMITTED, VENDOR_QUOTE doc, audit actor_type=VENDOR +
+  actor_user_id; the one-active duplicate block; the TOCTOU **closed-RFQ refusal proven by a 0-row read-back**).
+  Drift guards in lockstep: `schema.guards` (EXPECTED_POLICIES += `audit_log_vendor_append`; PrivRow flips
+  vendor quote/line/doc INSERT → true, audit INSERT true / SELECT false), `schema.constraints`
+  (EXPECTED_PARTIAL_UNIQUE += the one-active index).
+
+**Adversarial review** (Workflow: 4 lenses — prime-directive/security, db-rls/migration/drift, ts/react/next,
+test-fidelity — each finding independently refuted-by-default): **4 raised → 2 confirmed, 0 CRITICAL/HIGH.**
+Fixed: **MEDIUM** — the closed-RFQ gate (the only thing stopping a vendor quoting a firm-closed RFQ, app-layer
+with no DB/RLS backstop) had ZERO test → added the TOCTOU e2e (open the form, firm closes the RFQ, submit
+refused, **0 quote rows written**); **LOW** — the one-active index's WITHDRAWN predicate arm was untested →
+the resubmit negative now seeds BOTH REJECTED and WITHDRAWN priors (a drop of either arm now fails the test).
+2 refuted (the throttle-path `rawSolId` redirect is harmless; the 23505-vs-constraint-name assertion is
+optional hardening).
+
+**Non-obvious decisions / footguns:**
+- **The audit policy gap is the load-bearing find beyond the plan.** The vendor's in-tx audit write needs a
+  GRANT *and* a policy — 0007 needed only a grant because `audit_log`'s tenant_isolation already named
+  hermes_token. Forgetting the policy would have failed every real submit closed (no silent bypass).
+- **FK/RI bypasses RLS + privilege:** the audit `actor_user_id` → users FK check succeeds under hermes_vendor
+  even though it can't SELECT users (PostgreSQL runs RI checks with the table owner's rights, RLS off). Proven
+  empirically by the DB negative.
+- **Status re-checked at WRITE time, not just render:** the page hides the form for a closed RFQ, but the
+  action re-validates `OPEN_RFQ_STATUSES` inside the tx — the hidden `solicitationId` field is untrusted; a
+  forged/stale one can at worst name another in-org open RFQ the vendor may already quote (cross-org is
+  impossible — the hermes_vendor org policy). The TOCTOU e2e proves the action, not the page, is the backstop.
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/core` 32/32 (+3 storage); DB test files
+type-check clean (standalone). The 10 DB negatives + the e2e run in CI (`db` + `web-e2e`). No `ci.yml` change
+(auto-discovered); no `migrate.ts` re-order (0011 appended after 0010).
+
+**NEXT — Phase 7** (marketing site + production hardening: CSP/rate-limits/Sentry/heartbeat + go-live docs/CI
+migration step) then the operator Tier-1 deploy. Deferred tech-debt: a dedicated `hermes_onboarding` role for
+/invite; harden the `/admin/totp` cold-start `unstable_update` race. All `pendingCounsel`; no real bid until
+`readyForLiveSubmission`.
+
 ### Phase 6 — Vendor portal PR J: "my" reads + browse RFQs + portal nav shell — **CODE COMPLETE** (2026-06-17)
 
 The second vendor-portal slice (PR I onboarded the vendor; PR J gives them something to read). A logged-in

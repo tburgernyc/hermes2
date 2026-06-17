@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import Link from "next/link";
 
 import { and, desc, eq, inArray, solicitations, withVendorRole } from "@hermes/db";
 
@@ -46,6 +47,7 @@ export default async function OpenRfqsPage(): Promise<JSX.Element> {
               <th>Agency</th>
               <th>NAICS</th>
               <th>Response deadline</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -55,6 +57,9 @@ export default async function OpenRfqsPage(): Promise<JSX.Element> {
                 <td>{s.agency ?? "—"}</td>
                 <td>{s.naicsCode ?? "—"}</td>
                 <td>{s.responseDeadline ? s.responseDeadline.toISOString().slice(0, 10) : "—"}</td>
+                <td>
+                  <Link href={`/portal/solicitations/${s.id}/quote`}>Submit quote</Link>
+                </td>
               </tr>
             ))}
           </tbody>

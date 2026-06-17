@@ -23,6 +23,9 @@ import {
   withRollback,
 } from "./helpers/db.js";
 import {
+  insertContract,
+  insertDocument,
+  insertLineItem,
   insertOrg,
   insertQuote,
   insertSolicitation,
@@ -145,5 +148,140 @@ d("hermes_vendor — per-vendor isolation + the users↔vendors link boundary", 
         c.query(`UPDATE users SET vendor_id = $1 WHERE id = $2`, [vendorA, adminId]),
       );
       expect(err?.code).toBe(PG.CHECK_VIOLATION);
+    }));
+
+  // ---- PR J read surface (migration 0010): RFQ browse + documents/line-items EXISTS-to-parent ----
+
+  it("a vendor sees a VENDOR_QUOTE document on its OWN quote — the 0010 EXISTS-to-parent replacement", () =>
+    withRollback(async (c) => {
+      const orgId = await insertOrg(c);
+      const solId = await insertSolicitation(c, orgId, { contractType: "FFP" });
+      const vendorA = await insertVendor(c, orgId, { companyName: "Vendor A" });
+      const vendorB = await insertVendor(c, orgId, { companyName: "Vendor B" });
+      const quoteA = await insertQuote(c, orgId, { solicitationId: solId, vendorId: vendorA });
+      const quoteB = await insertQuote(c, orgId, { solicitationId: solId, vendorId: vendorB });
+      const docA = await insertDocument(c, orgId, { entityType: "VENDOR_QUOTE", quoteId: quoteA });
+      const docB = await insertDocument(c, orgId, { entityType: "VENDOR_QUOTE", quoteId: quoteB });
+
+      await setOrgContext(c, orgId);
+      await setVendorContext(c, vendorA);
+      await setLocalRole(c, "hermes_vendor");
+
+      const ids = (await c.query<{ id: string }>(`SELECT id FROM documents ORDER BY id`)).rows.map(
+        (r) => r.id,
+      );
+      // Under the 0009 own-vendor-only policy this set would be EMPTY (the doc has no vendor_id). The
+      // 0010 EXISTS-to-parent replacement is precisely what makes the vendor's OWN quote doc visible …
+      expect(ids).toContain(docA);
+      // … while a same-org competitor's quote doc stays hidden.
+      expect(ids).not.toContain(docB);
+      expect(ids).toHaveLength(1);
+    }));
+
+  it("a vendor sees a CONTRACT document on its OWN subcontract, not a competitor's", () =>
+    withRollback(async (c) => {
+      const orgId = await insertOrg(c);
+      const vendorA = await insertVendor(c, orgId, { companyName: "Vendor A" });
+      const vendorB = await insertVendor(c, orgId, { companyName: "Vendor B" });
+      const contractA = await insertContract(c, orgId, { awardedVendorId: vendorA });
+      const contractB = await insertContract(c, orgId, { awardedVendorId: vendorB });
+      const docA = await insertDocument(c, orgId, { entityType: "CONTRACT", contractId: contractA });
+      const docB = await insertDocument(c, orgId, { entityType: "CONTRACT", contractId: contractB });
+
+      await setOrgContext(c, orgId);
+      await setVendorContext(c, vendorA);
+      await setLocalRole(c, "hermes_vendor");
+
+      const ids = (await c.query<{ id: string }>(`SELECT id FROM documents ORDER BY id`)).rows.map(
+        (r) => r.id,
+      );
+      expect(ids).toContain(docA);
+      expect(ids).not.toContain(docB);
+    }));
+
+  it("a vendor browses in-org solicitations but never another org's (0010 org-scoped grant/policy)", () =>
+    withRollback(async (c) => {
+      const orgA = await insertOrg(c);
+      const orgB = await insertOrg(c);
+      const vendorA = await insertVendor(c, orgA);
+      const solA = await insertSolicitation(c, orgA);
+      const solB = await insertSolicitation(c, orgB);
+
+      await setOrgContext(c, orgA);
+      await setVendorContext(c, vendorA);
+      await setLocalRole(c, "hermes_vendor");
+
+      const ids = (await c.query<{ id: string }>(`SELECT id FROM solicitations ORDER BY id`)).rows.map(
+        (r) => r.id,
+      );
+      expect(ids).toContain(solA);
+      expect(ids).not.toContain(solB); // a different org's RFQ is invisible (org gate)
+    }));
+
+  it("a vendor reads the line items of its OWN quote only (0010 EXISTS-to-parent)", () =>
+    withRollback(async (c) => {
+      const orgId = await insertOrg(c);
+      const solId = await insertSolicitation(c, orgId, { contractType: "FFP" });
+      const vendorA = await insertVendor(c, orgId, { companyName: "Vendor A" });
+      const vendorB = await insertVendor(c, orgId, { companyName: "Vendor B" });
+      const quoteA = await insertQuote(c, orgId, { solicitationId: solId, vendorId: vendorA });
+      const quoteB = await insertQuote(c, orgId, { solicitationId: solId, vendorId: vendorB });
+      const lineA = await insertLineItem(c, orgId, { quoteId: quoteA });
+      const lineB = await insertLineItem(c, orgId, { quoteId: quoteB });
+
+      await setOrgContext(c, orgId);
+      await setVendorContext(c, vendorA);
+      await setLocalRole(c, "hermes_vendor");
+
+      const ids = (
+        await c.query<{ id: string }>(`SELECT id FROM vendor_quote_line_items ORDER BY id`)
+      ).rows.map((r) => r.id);
+      expect(ids).toContain(lineA);
+      expect(ids).not.toContain(lineB);
+      expect(ids).toHaveLength(1);
+    }));
+
+  it("a vendor sees a VENDOR-type document it owns (the vendor_id arm), not a competitor's", () =>
+    withRollback(async (c) => {
+      const orgId = await insertOrg(c);
+      const vendorA = await insertVendor(c, orgId, { companyName: "Vendor A" });
+      const vendorB = await insertVendor(c, orgId, { companyName: "Vendor B" });
+      // entity_type VENDOR ⇒ owned via vendor_id (the FIRST OR arm of documents_vendor_scope).
+      const docA = await insertDocument(c, orgId, { entityType: "VENDOR", vendorId: vendorA });
+      const docB = await insertDocument(c, orgId, { entityType: "VENDOR", vendorId: vendorB });
+
+      await setOrgContext(c, orgId);
+      await setVendorContext(c, vendorA);
+      await setLocalRole(c, "hermes_vendor");
+
+      const ids = (await c.query<{ id: string }>(`SELECT id FROM documents ORDER BY id`)).rows.map(
+        (r) => r.id,
+      );
+      expect(ids).toContain(docA);
+      expect(ids).not.toContain(docB);
+      expect(ids).toHaveLength(1);
+    }));
+
+  it("two vendors in the SAME org both see the same in-org RFQ (shared browse, no per-vendor narrowing)", () =>
+    withRollback(async (c) => {
+      const orgId = await insertOrg(c);
+      const vendorA = await insertVendor(c, orgId, { companyName: "Vendor A" });
+      const vendorB = await insertVendor(c, orgId, { companyName: "Vendor B" });
+      const solId = await insertSolicitation(c, orgId);
+
+      await setOrgContext(c, orgId);
+      await setVendorContext(c, vendorA);
+      await setLocalRole(c, "hermes_vendor");
+      const asA = (await c.query<{ id: string }>(`SELECT id FROM solicitations`)).rows.map((r) => r.id);
+      expect(asA).toContain(solId);
+
+      // Re-enter as vendor B: reset to the owner, switch the per-vendor GUC, drop back to hermes_vendor
+      // (mirrors withVendorRole's set-GUC-then-SET-ROLE flow). The PERMISSIVE org-only policy has no
+      // per-vendor narrowing, so the SAME RFQ is visible — RFQs are shared within the org.
+      await c.query("RESET ROLE");
+      await setVendorContext(c, vendorB);
+      await setLocalRole(c, "hermes_vendor");
+      const asB = (await c.query<{ id: string }>(`SELECT id FROM solicitations`)).rows.map((r) => r.id);
+      expect(asB).toContain(solId);
     }));
 });

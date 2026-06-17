@@ -225,6 +225,61 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 — Vendor portal PR J: "my" reads + browse RFQs + portal nav shell — **CODE COMPLETE** (2026-06-17)
+
+The second vendor-portal slice (PR I onboarded the vendor; PR J gives them something to read). A logged-in
+VENDOR sees their OWN quotes (+ line-item detail), browses all open in-org RFQs, sees their subcontracts and
+documents — every read RLS-scoped through `withVendorRole`. **Read-only** (no mutations, no Inngest, no model
+calls); the logged-in submit is PR K. Prime Directive untouched.
+
+**What shipped** (branch `phase-6-vendor-reads`, off `main @ 2e6efb4`):
+- **`@hermes/db` migration `0010_vendor_reads.sql`** (idempotent, runs after 0009; `migrate.ts` wired,
+  `prosecdef` assertion intact): `solicitations` `GRANT SELECT` + a PERMISSIVE org-only policy
+  `solicitations_vendor_org` (RFQs are shared in-org — deliberately NO per-vendor scope; the page filters
+  status, not RLS). **REPLACES** (DROP+CREATE, not a 2nd RESTRICTIVE) the 0009 `documents_vendor_scope` with
+  the **EXISTS-to-parent** form (own `vendor_id` OR own-quote OR own-contract docs) so a vendor finally sees
+  the PDFs on its own quotes/subcontracts (0009 keyed only on `vendor_id`, which is NULL for VENDOR_QUOTE/
+  CONTRACT docs → they were hidden). Adds the `vendor_quote_line_items` read surface (SELECT + org PERMISSIVE
+  + EXISTS-to-parent RESTRICTIVE; **WITH CHECK dormant until PR K grants INSERT**).
+- **`apps/web`**: `/portal/layout.tsx` nav shell + `quotes` (+ `[id]` detail w/ line items), `solicitations`
+  (browse open RFQs), `contracts` (my subcontracts), `documents` (signed URLs, fail-soft if storage unset).
+  Each `requireVendorWithVendorId → one withVendorRole tx`; untrusted `notes` rendered as data (JSX
+  autoescape). New `apps/web/lib/portal.ts` (`OPEN_RFQ_STATUSES` — the single source PR K's submit guard will
+  reuse — `humanizeStatus`, `formatUsd`). Added `force-dynamic` to the existing `/portal` landing.
+- **Tests**: 6 DB negatives added to `negative.vendor-role.test.ts` (the documents-policy-**replacement
+  canary**: a vendor now sees its own VENDOR_QUOTE doc, hidden under 0009; the VENDOR/CONTRACT doc arms; the
+  line-items read; cross-org RFQ invisibility; same-org RFQ **shared** visibility) + `insertContract`/
+  `insertDocument`/`insertLineItem` fixtures; e2e `portal-reads.spec.ts` (linked vendor reads all surfaces +
+  the escaped-notes XSS assertion + an **unlinked** vendor is blocked from the scoped reads). Drift guard
+  `schema.guards.test.ts` updated in lockstep (new policy names; `solicitations`/`line_items` SELECT-granted,
+  INSERT-absent — proving PR J is read-only).
+
+**Adversarial review** (Workflow: 4 lenses — prime-directive/isolation, db-migration/RLS/drift, TS/React/Next,
+test-fidelity — 25 candidates, each independently verified): **5 confirmed, 0 CRITICAL.** Fixed: **HIGH** —
+`/portal` landing missing `force-dynamic` (session-linkage state could cache stale); **MEDIUM** — no same-org
+RFQ-shared-visibility test (added); **MEDIUM** — e2e didn't prove an unlinked vendor is blocked (added);
+**LOW** — the VENDOR-type document arm was untested (added). 20 refuted (incl. confirmations that the policy
+replacement, EXISTS logic, idempotence, and XSS handling are correct).
+
+**Non-obvious decisions / footguns:**
+- **Line-items READ moved into PR J.** The plan parked all line-item DB work in PR K, but PR J's detail page
+  renders line items — a page that can't read what it shows is broken. So PR J grants SELECT + the EXISTS-to-
+  parent policy (full read+write shape, WITH CHECK dormant); PR K adds only the INSERT grant. Documented in
+  the 0010 header.
+- **REPLACE, never add** the documents RESTRICTIVE policy (RESTRICTIVE policies AND together — a 2nd one keeps
+  the quote/contract docs hidden). The canary test fails under the old 0009 policy, so it guards the regression.
+- `OPEN_RFQ_STATUSES = ['SOURCING_IN_PROGRESS']` is the shared status window (the state-machine "collecting
+  quotes" state); PR K's submit guard must reuse it.
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; DB test files type-check clean (standalone). The DB
+negatives (+6) and web e2e (+`portal-reads.spec`) run in CI (`db` + `web-e2e`). No `ci.yml` change (auto-
+discovered). No `migrate.ts` re-order (0010 appended after 0009).
+
+**NEXT — PR K** (logged-in submit, closes Phase 6): `vendor_quotes`/`vendor_quote_line_items`/`documents`
+INSERT grants + WITH-CHECK activation; `vendorQuoteDocumentKey`; authenticated `submitQuote` (vendorId from
+session, app-side UUID, one `withVendorRole` tx, status SUBMITTED, best-effort Inngest emit); one active quote
+per (vendor, solicitation). Then Phase 7 (marketing + hardening) + the operator Tier-1 deploy. All `pendingCounsel`.
+
 ### Phase 6 — Vendor portal PR I: VENDOR_INVITE onboarding — **CODE COMPLETE** (2026-06-17)
 
 First slice of the vendor portal (the deferred Phase-5 B4, unblocked by PR-C). An admin mints a single-use

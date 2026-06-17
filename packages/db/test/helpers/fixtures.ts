@@ -143,6 +143,112 @@ export async function insertProposal(
   return firstId(result);
 }
 
+/** A line item on `quoteId`. contract_type is overwritten by the SECURITY DEFINER sync trigger from the
+ *  quote's solicitation, so that solicitation must carry a concrete contract_type. */
+export async function insertLineItem(
+  client: PoolClient,
+  orgId: string,
+  opts: {
+    quoteId: string;
+    costType?: "LABOR" | "MATERIAL" | "ODC" | "SUBCONTRACT" | "TRAVEL";
+    description?: string;
+    unitRate?: string;
+    contractType?: "FFP" | "TM" | "FFP_MILESTONE";
+  },
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO vendor_quote_line_items
+       (org_id, quote_id, cost_type, contract_type, description, unit_rate)
+     VALUES ($1, $2, $3::cost_type, $4::contract_type, $5, $6) RETURNING id`,
+    [
+      orgId,
+      opts.quoteId,
+      opts.costType ?? "LABOR",
+      opts.contractType ?? "FFP",
+      opts.description ?? "Senior engineer",
+      opts.unitRate ?? "100.00",
+    ],
+  );
+  return firstId(result);
+}
+
+/** A contract awarded to `awardedVendorId` (the hermes_vendor `awarded_vendor_id` isolation key). */
+export async function insertContract(
+  client: PoolClient,
+  orgId: string,
+  opts: {
+    awardedVendorId?: string | null;
+    solicitationId?: string | null;
+    contractType?: "FFP" | "TM" | "FFP_MILESTONE";
+    status?: string;
+  } = {},
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO contracts (org_id, solicitation_id, awarded_vendor_id, contract_type, status)
+     VALUES ($1, $2, $3, $4::contract_type, $5::contract_status) RETURNING id`,
+    [
+      orgId,
+      opts.solicitationId ?? null,
+      opts.awardedVendorId ?? null,
+      opts.contractType ?? "FFP",
+      opts.status ?? "PENDING_SIGNATURE",
+    ],
+  );
+  return firstId(result);
+}
+
+/** A documents row owned by exactly one parent (entity_type + the matching owner FK — CHECK enforced). */
+export async function insertDocument(
+  client: PoolClient,
+  orgId: string,
+  opts: {
+    entityType:
+      | "SOLICITATION"
+      | "VENDOR"
+      | "VENDOR_PROSPECT"
+      | "VENDOR_QUOTE"
+      | "PROPOSAL"
+      | "CONTRACT"
+      | "CONTRACT_MILESTONE";
+    solicitationId?: string | null;
+    vendorId?: string | null;
+    prospectId?: string | null;
+    quoteId?: string | null;
+    proposalId?: string | null;
+    contractId?: string | null;
+    milestoneId?: string | null;
+    kind?: string;
+    storageKey?: string;
+    contentType?: string;
+    byteSize?: number;
+  },
+): Promise<string> {
+  const n = uniq();
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO documents
+       (org_id, entity_type, solicitation_id, vendor_id, prospect_id, quote_id, proposal_id,
+        contract_id, milestone_id, kind, storage_key, content_type, byte_size)
+     VALUES ($1, $2::document_entity_type, $3, $4, $5, $6, $7, $8, $9, $10::document_kind, $11, $12, $13)
+     RETURNING id`,
+    [
+      orgId,
+      opts.entityType,
+      opts.solicitationId ?? null,
+      opts.vendorId ?? null,
+      opts.prospectId ?? null,
+      opts.quoteId ?? null,
+      opts.proposalId ?? null,
+      opts.contractId ?? null,
+      opts.milestoneId ?? null,
+      opts.kind ?? "OTHER",
+      opts.storageKey ?? `orgs/${orgId}/doc-${n}.pdf`,
+      opts.contentType ?? "application/pdf",
+      opts.byteSize ?? 1024,
+    ],
+  );
+  return firstId(result);
+}
+
 /** A pending (or, via opts, already-claimed) VENDOR_INVITE row. created_by must be an existing user. */
 export async function insertVendorInvite(
   client: PoolClient,

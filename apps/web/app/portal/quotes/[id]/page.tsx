@@ -1,0 +1,134 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import type { JSX } from "react";
+
+import {
+  and,
+  asc,
+  eq,
+  solicitations,
+  vendorQuoteLineItems,
+  vendorQuotes,
+  withVendorRole,
+} from "@hermes/db";
+
+import { requireVendorWithVendorId } from "@/lib/auth-guard";
+import { formatUsd, humanizeStatus } from "@/lib/portal";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const dynamic = "force-dynamic";
+
+/**
+ * "My Quote" detail + line items. RLS (0009 for the quote, 0010 EXISTS-to-parent for the line items)
+ * guarantees a vendor can only ever load its OWN quote; a non-owned or unknown id renders notFound().
+ * `notes` is untrusted free text rendered as data (JSX autoescapes) — never as instructions (§5).
+ */
+export default async function MyQuoteDetail({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<JSX.Element> {
+  const { session, vendorId } = await requireVendorWithVendorId();
+  const orgId = session.user.orgId;
+  const { id } = await params;
+  if (!UUID_RE.test(id)) notFound();
+
+  const data = await withVendorRole(orgId, vendorId, async (tx) => {
+    const [quote] = await tx
+      .select({
+        id: vendorQuotes.id,
+        status: vendorQuotes.status,
+        totalPrice: vendorQuotes.totalPrice,
+        periodOfPerformance: vendorQuotes.periodOfPerformance,
+        payWhenPaid: vendorQuotes.payWhenPaid,
+        notes: vendorQuotes.notes,
+        solicitationTitle: solicitations.title,
+        noticeId: solicitations.noticeId,
+      })
+      .from(vendorQuotes)
+      .innerJoin(
+        solicitations,
+        and(
+          eq(solicitations.orgId, vendorQuotes.orgId),
+          eq(solicitations.id, vendorQuotes.solicitationId),
+        ),
+      )
+      .where(
+        and(eq(vendorQuotes.orgId, orgId), eq(vendorQuotes.id, id), eq(vendorQuotes.vendorId, vendorId)),
+      )
+      .limit(1);
+    if (!quote) return null;
+
+    const lines = await tx
+      .select({
+        id: vendorQuoteLineItems.id,
+        costType: vendorQuoteLineItems.costType,
+        description: vendorQuoteLineItems.description,
+        quantity: vendorQuoteLineItems.quantity,
+        unitRate: vendorQuoteLineItems.unitRate,
+        extendedAmount: vendorQuoteLineItems.extendedAmount,
+      })
+      .from(vendorQuoteLineItems)
+      .where(and(eq(vendorQuoteLineItems.orgId, orgId), eq(vendorQuoteLineItems.quoteId, id)))
+      .orderBy(asc(vendorQuoteLineItems.createdAt));
+
+    return { quote, lines };
+  });
+
+  if (!data) notFound();
+  const { quote, lines } = data;
+
+  return (
+    <main>
+      <p>
+        <Link href="/portal/quotes">← My Quotes</Link>
+      </p>
+      <h1>{quote.solicitationTitle}</h1>
+      <p>Notice {quote.noticeId}</p>
+      <dl>
+        <dt>Status</dt>
+        <dd data-testid="quote-status">{humanizeStatus(quote.status)}</dd>
+        <dt>Total price</dt>
+        <dd>{formatUsd(quote.totalPrice)}</dd>
+        <dt>Period of performance</dt>
+        <dd>{quote.periodOfPerformance ?? "—"}</dd>
+        <dt>Pay-when-paid</dt>
+        <dd>{quote.payWhenPaid ? "Yes" : "No"}</dd>
+      </dl>
+      {quote.notes ? (
+        <section>
+          <h2>Notes</h2>
+          <p data-testid="quote-notes">{quote.notes}</p>
+        </section>
+      ) : null}
+      <h2>Line items</h2>
+      {lines.length === 0 ? (
+        <p>No line items.</p>
+      ) : (
+        <table data-testid="quote-lines">
+          <thead>
+            <tr>
+              <th>Cost type</th>
+              <th>Description</th>
+              <th>Qty</th>
+              <th>Unit rate</th>
+              <th>Extended</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l) => (
+              <tr key={l.id}>
+                <td>{humanizeStatus(l.costType)}</td>
+                <td>{l.description}</td>
+                <td>{Number(l.quantity)}</td>
+                <td>{formatUsd(l.unitRate)}</td>
+                <td>{formatUsd(l.extendedAmount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </main>
+  );
+}

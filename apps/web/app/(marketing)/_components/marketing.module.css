@@ -1,0 +1,233 @@
+/* Shared layout + typography vocabulary for every marketing page. CSS Modules only (no inline styles). */
+
+.container {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 var(--space-4);
+}
+
+/* ---- Hero ---- */
+.hero {
+  background: linear-gradient(180deg, var(--color-accent-surface), var(--color-bg));
+  border-bottom: 1px solid var(--color-line);
+}
+.heroInner {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: var(--space-24) var(--space-4) var(--space-16);
+}
+.kicker {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: var(--space-3);
+}
+.heroTitle {
+  max-width: 18ch;
+}
+.lede {
+  font-size: 1.2rem;
+  color: var(--color-muted);
+  max-width: 60ch;
+}
+.actions {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-8);
+}
+
+/* ---- Generic section ---- */
+.section {
+  padding: var(--space-16) 0;
+}
+.sectionAlt {
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+}
+.sectionTitle {
+  margin-bottom: var(--space-2);
+}
+.sectionLede {
+  color: var(--color-muted);
+  max-width: 62ch;
+  margin-bottom: var(--space-8);
+}
+
+/* ---- Grids + cards ---- */
+.grid {
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) {
+  .grid2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .grid3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 920px) {
+  .grid3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow);
+}
+.cardTitle {
+  font-size: 1.15rem;
+  margin-bottom: var(--space-2);
+}
+.cardText {
+  color: var(--color-muted);
+  margin: 0;
+}
+
+/* ---- Audience paths ---- */
+.path {
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.pathText {
+  color: var(--color-muted);
+  flex: 1;
+}
+.pathActions {
+  margin-top: var(--space-4);
+}
+
+/* ---- Credentials ---- */
+.credentials {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) {
+  .credentials {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.cred {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+}
+.credLabel {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+.credValue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  text-align: right;
+}
+.credNote {
+  grid-column: 1 / -1;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* ---- Inner page header + prose ---- */
+.pageHeader {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-line);
+}
+.pageHeaderInner {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: var(--space-16) var(--space-4) var(--space-12);
+}
+.prose {
+  max-width: 70ch;
+}
+.prose h2 {
+  margin-top: var(--space-8);
+}
+.prose ul {
+  color: var(--color-muted);
+  padding-left: 1.2em;
+}
+.prose li {
+  margin-bottom: var(--space-2);
+}
+
+/* ---- Capability statement download block ---- */
+.pdfBlock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--color-surface-2);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-lg);
+}
+
+/* ---- Principal summary ---- */
+.principal {
+  display: grid;
+  gap: var(--space-6);
+  align-items: center;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 720px) {
+  .principal {
+    grid-template-columns: auto 1fr;
+  }
+}
+.avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 700;
+  flex: none;
+}
+.tagList {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0;
+  margin: var(--space-4) 0 0;
+}
+.tag {
+  padding: 0.2rem 0.65rem;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: var(--color-ink);
+}

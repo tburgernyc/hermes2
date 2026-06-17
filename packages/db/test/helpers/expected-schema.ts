@@ -53,6 +53,17 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
     { name: "ip", udt: "text", nullable: true },
     ts("created_at", false), // append-only: no updated_at
   ],
+  contact_inquiries: [
+    { name: "id", udt: "uuid", nullable: false },
+    { name: "org_id", udt: "uuid", nullable: false },
+    { name: "name", udt: "text", nullable: false },
+    { name: "email", udt: "text", nullable: false },
+    { name: "company", udt: "text", nullable: true },
+    { name: "intent", udt: "inquiry_intent", nullable: false },
+    { name: "message", udt: "text", nullable: false },
+    { name: "status", udt: "inquiry_status", nullable: false },
+    ...stamps,
+  ],
   award_intelligence: [
     { name: "id", udt: "uuid", nullable: false },
     { name: "org_id", udt: "uuid", nullable: false },
@@ -274,7 +285,7 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
 
 export const EXPECTED_TABLES: string[] = Object.keys(EXPECTED_COLUMNS);
 
-/** All 25 enums and their labels, in sort order. */
+/** All 27 enums and their labels, in sort order. */
 export const EXPECTED_ENUMS: Record<string, string[]> = {
   actor_type: ["SYSTEM", "ADMIN", "VENDOR", "TOKEN"],
   ar_followup_status: ["SCHEDULED", "SENT", "PAID", "ESCALATED", "WRITTEN_OFF"],
@@ -305,6 +316,8 @@ export const EXPECTED_ENUMS: Record<string, string[]> = {
     "OTHER",
   ],
   esign_status: ["NOT_STARTED", "SENT", "SIGNED", "DECLINED", "EXPIRED"],
+  inquiry_intent: ["TEAMING", "AGENCY", "OTHER"],
+  inquiry_status: ["NEW", "REVIEWED"],
   milestone_status: ["PENDING", "IN_PROGRESS", "COMPLETED", "INVOICED", "PAID"],
   notice_type: [
     "SOLICITATION",

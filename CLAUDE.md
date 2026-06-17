@@ -225,6 +225,73 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 7 — PR 7a: Public marketing site (BurgerGov) + contact-inquiry backend — **CODE COMPLETE** (2026-06-17)
+
+First slice of Phase 7 (the outward-facing/operational phase; 7b = CSP/headers + rate-limits + Sentry +
+external heartbeat, 7c = go-live docs + the Fly release_command migration step). A PUBLIC marketing site
+that is **literally true** (the operator's BurgerGov build brief: founder-led, no fabricated past-performance,
+no certs the firm lacks; every not-yet-real item a visibly-marked placeholder) and itself demonstrates the
+WCAG 2.1 AA craft it advertises. **Prime Directive §2 untouched:** the contact form STORES a lead and does
+nothing else — no email, no Inngest, no state advance; the operator reviews/follows up by hand.
+
+**What shipped** (branch `phase-7a-marketing`, off `main @ c81afab`):
+- **`@hermes/db`**: new **`contact_inquiries`** table + `inquiry_intent` (TEAMING/AGENCY/OTHER) + `inquiry_status`
+  (NEW/REVIEWED) pgEnums; generated migration `0003_chief_pepper_potts.sql`; added to BOTH `0003_guards.sql`
+  loops (updated_at trigger + tenant_isolation RLS) so it gets the same guards as every table; the
+  `contact_inquiries_text_present` CHECK (non-empty name+message — the DB belt behind the action Zod). hermes_app
+  gets DML via the existing 0004 ON-ALL-TABLES grant (re-runs after the drizzle migrate); no new manual file,
+  no `migrate.ts` change. Drift guards extended in lockstep (EXPECTED_COLUMNS/ENUMS, EXPECTED_CHECKS; the
+  guards test derives the table's policy+trigger from EXPECTED_TABLES). New `negative.contact-inquiries.test.ts`
+  (WITH CHECK org≠GUC → 42501, cross-org SELECT → 0 rows, blank → 23514, happy insert).
+- **`apps/web`**: `app/(marketing)/` route group (own layout = skip-link + `SiteHeader` + `<main>` + `SiteFooter`,
+  OUTSIDE the /admin|/portal matcher) — home (two equal CTAs: "Partner with us" → /contact?intent=teaming,
+  "View capability statement" → /capabilities#capability-statement), capabilities (+ the `#capability-statement`
+  PDF placeholder), about (principal bio + headshot placeholder), contact, privacy, terms. **CSS Modules + a
+  global design-tokens stylesheet (`globals.css`); ZERO inline `style` on marketing pages** (keeps 7b's CSP
+  style-src clean). Inline-SVG logo + `app/icon.svg` favicon (no binary assets), `app/sitemap.ts` + `app/robots.ts`.
+  Brand single-source `lib/site.ts` (typed CREDENTIALS with explicit `confirmed|assigned|pending` states; CAGE
+  is `pending` → a visible `<PlaceholderBadge>`, never a fake value). The old Phase-0 `app/page.tsx` + its smoke
+  test were removed (the home moved into the route group; would collide on "/"); the smoke test became
+  `lib/site.test.ts` (brand + truthfulness invariants).
+- **Contact backend**: public `submitInquiry` Server Action — rate-limit (`clientKey`/`rateLimit`, route "contact")
+  → Zod-validate → **`firmOrgId()` resolved SERVER-SIDE from `HERMES_ACTIVE_ORG_IDS`** (never the client, §7) →
+  ONE `withOrg` insert (status NEW) → redirect status. NO Resend/Inngest/advance (§2). `/admin/inquiries`
+  read surface + `markInquiryReviewed` (requireAdmin → withOrg → audit NEW→REVIEWED; admin nav link added).
+  Status surfaced via `data-testid="contact-status"` + `role="status"` — NOT `getByRole("alert")` (the documented
+  Next route-announcer collision).
+- **Tests**: `e2e/marketing.spec.ts` (pages render + one `<h1>` each, both CTAs + nav, CAGE/PDF placeholders,
+  contact stores-inquiry **owner-DSN read-back proving no outbound/advance**, exact-MAX_HITS rate-limit, axe
+  WCAG A/AA scan on ALL six pages). New dev dep `@axe-core/playwright` (+ lockfile). e2e wiring: a fixed
+  `E2E_ORG_ID` (fixtures) seeded as the org id (global-setup) + `HERMES_ACTIVE_ORG_IDS` set in playwright.config
+  so the spawned server's `firmOrgId()` resolves the e2e org.
+
+**Adversarial review** (Workflow: 4 lenses — prime-directive/security · db-rls/drift · ts/react/next/a11y ·
+test-fidelity — 12 agents, each finding refuted-by-default): **2 confirmed, BOTH LOW, 0 CRITICAL/HIGH/MEDIUM.**
+Fixed both: the rate-limit e2e shared the `contact:unknown` bucket (now stamps a dedicated X-Forwarded-For IP →
+asserts the EXACT 10-submit threshold, not just "eventually throttled"); the axe scan covered only 2 pages (now
+all six). No §2/§7/truthfulness/drift breaches found.
+
+**Non-obvious decisions / footguns:**
+- **Contact write uses `hermes_app` via `withOrg(firmOrgId)`** — the SAME precedent as the public `/invite` accept
+  (a public write needing more than a token role): server-resolved org GUC + Zod + rate-limit + same-origin. A
+  dedicated least-privilege **`hermes_public`** role is the correct hardening — **deferred to tech-debt #23**
+  (alongside `hermes_onboarding`), exactly as PR I deferred its role.
+- **`firmOrgId()` resolves the single-tenant firm org from `HERMES_ACTIVE_ORG_IDS[0]`** (reuses the cron env;
+  fail-closed if unset). The e2e seeds a FIXED org id so the running server can resolve it (CI uses a fresh DB).
+- Marketing pages are DB/AI-free (the argon2/pg `serverExternalPackages` externals break the browser build);
+  the contact Server Action is the only DB toucher in the group.
+- Direct email/phone + capability-statement PDF + headshot all render as visible placeholders (truthfulness);
+  the footer mailing address reads `OUTREACH_POSTAL_ADDRESS` with a marked-placeholder fallback.
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/web` unit 15/15 (incl. site.test brand
+invariants); `@hermes/db` src+test typecheck clean (standalone). The DB negative + the marketing e2e run in CI
+(`db` + `web-e2e`); no `ci.yml` change (auto-discovered). `migrate.ts` applies `0003` (prosecdef assertion intact).
+
+**NEXT — PR 7b** (production hardening): CSP + security-header set (global, covering the public pages that bypass
+the matcher), rate-limiting the remaining endpoints (login HTTP-layer + TOTP step-up), Sentry (`@sentry/nextjs`
+with secret/PII scrub + RLS-error suppression), and the external dead-man's-switch runbook + `/api/health`. Then
+7c (go-live docs + Fly release_command). All `pendingCounsel`; no real bid until `readyForLiveSubmission`.
+
 ### Phase 6 — Vendor portal PR K: logged-in vendor submit — **CODE COMPLETE — CLOSES PHASE 6** (2026-06-17)
 
 The last vendor-portal slice: a logged-in VENDOR submits their OWN quote (PDF + line items) against an open

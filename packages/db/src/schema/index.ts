@@ -1,7 +1,8 @@
-/** Schema barrel: enums, helpers, all 15 tables, and the query-API relations. */
+/** Schema barrel: enums, helpers, all 17 tables, and the query-API relations. */
 export * from "./enums.js";
 export * from "./_shared.js";
 export * from "./tenancy.js";
+export * from "./inquiries.js";
 export * from "./sourcing.js";
 export * from "./vendors.js";
 export * from "./quoting.js";

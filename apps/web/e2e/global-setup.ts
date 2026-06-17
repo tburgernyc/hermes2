@@ -12,6 +12,7 @@ import {
   E2E_ADMIN_EMAIL,
   E2E_ADMIN_PASSWORD,
   E2E_ADMIN_TOTP_SECRET,
+  E2E_ORG_ID,
   E2E_ORG_SLUG,
   E2E_VENDOR_EMAIL,
   E2E_VENDOR_PASSWORD,
@@ -30,11 +31,13 @@ export default async function globalSetup(): Promise<void> {
 
   const pool = new Pool({ connectionString: dsn });
   try {
+    // Fixed id (E2E_ORG_ID) so the public /contact form's firmOrgId() — fed via HERMES_ACTIVE_ORG_IDS
+    // in playwright.config — matches the seeded org. CI runs on a fresh DB, so the id is created exactly.
     const org = await pool.query<{ id: string }>(
-      `INSERT INTO orgs (slug, name, directives) VALUES ($1, 'E2E Org', '{}'::jsonb)
+      `INSERT INTO orgs (id, slug, name, directives) VALUES ($1, $2, 'E2E Org', '{}'::jsonb)
        ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
        RETURNING id`,
-      [E2E_ORG_SLUG],
+      [E2E_ORG_ID, E2E_ORG_SLUG],
     );
     const orgId = org.rows[0]?.id;
     if (!orgId) throw new Error("e2e global-setup: failed to upsert org");

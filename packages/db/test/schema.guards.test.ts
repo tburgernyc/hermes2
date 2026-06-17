@@ -11,7 +11,7 @@ import { EXPECTED_TABLES } from "./helpers/expected-schema.js";
 
 const d = HAS_DB ? describe : describe.skip;
 
-const UPDATED_AT_TABLES = EXPECTED_TABLES.filter((t) => t !== "audit_log"); // 14 (audit_log is append-only)
+const UPDATED_AT_TABLES = EXPECTED_TABLES.filter((t) => t !== "audit_log"); // 16 (audit_log is append-only)
 
 const EXPECTED_TRIGGERS = new Set<string>([
   ...UPDATED_AT_TABLES.map((t) => `${t}.${t}_set_updated_at`),

@@ -21,7 +21,7 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'orgs','users','solicitations','award_intelligence','vendor_prospects','vendors',
     'vendor_invites','outreach_campaigns','vendor_quotes','vendor_quote_line_items','proposals',
-    'contracts','contract_milestones','ar_followups','documents'
+    'contracts','contract_milestones','ar_followups','documents','contact_inquiries'
   ] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_set_updated_at', t);
     EXECUTE format(
@@ -104,7 +104,7 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'users','audit_log','solicitations','award_intelligence','vendor_prospects','vendors',
     'vendor_invites','outreach_campaigns','vendor_quotes','vendor_quote_line_items','proposals',
-    'contracts','contract_milestones','ar_followups','documents'
+    'contracts','contract_milestones','ar_followups','documents','contact_inquiries'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', t || '_tenant_isolation', t);

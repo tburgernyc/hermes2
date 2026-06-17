@@ -53,6 +53,7 @@ const EXPECTED_CHECKS: string[] = [
   "documents_owner_exactly_one",
   "documents_owner_matches_type",
   "vendor_invites_accept_pair",
+  "contact_inquiries_text_present",
 ];
 
 // confdeltype: 'r' = RESTRICT, 'c' = CASCADE.

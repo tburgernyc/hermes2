@@ -201,3 +201,9 @@ export const classificationSource = pgEnum("classification_source", [
   "SAM_GOV",
   "HEURISTIC",
 ]);
+
+/** Audience a public marketing contact inquiry self-identifies as (drives admin triage, not workflow). */
+export const inquiryIntent = pgEnum("inquiry_intent", ["TEAMING", "AGENCY", "OTHER"]);
+
+/** Contact-inquiry review state. The admin flips NEW → REVIEWED by hand; no model, no outbound (§2). */
+export const inquiryStatus = pgEnum("inquiry_status", ["NEW", "REVIEWED"]);

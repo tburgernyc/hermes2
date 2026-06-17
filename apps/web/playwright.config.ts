@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { defineConfig } from "@playwright/test";
 
+import { E2E_ORG_ID } from "./e2e/fixtures";
+
 const here = dirname(fileURLToPath(import.meta.url));
 // Load repo-root .env for local runs; CI provides the env directly.
 dotenv.config({ path: resolve(here, "../../.env") });
@@ -18,6 +20,9 @@ process.env.TOKEN_SIGNING_SECRET ??= "e2e-token-signing-secret-0123456789abcd";
 // No Tigris in e2e/CI: the tokenized upload path uses the in-memory storage driver (explicit opt-in).
 process.env.STORAGE_DRIVER ??= "memory";
 process.env.AUTH_URL = BASE_URL;
+// The public /contact form resolves the firm org from HERMES_ACTIVE_ORG_IDS; point it at the e2e org
+// (seeded with this fixed id in global-setup). Set BEFORE defineConfig so it is captured in webServer.env.
+process.env.HERMES_ACTIVE_ORG_IDS ??= E2E_ORG_ID;
 
 // The app under test connects with the migration-owner DSN for e2e.
 const ownerDsn = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL_UNPOOLED;

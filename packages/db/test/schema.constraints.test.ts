@@ -90,6 +90,8 @@ const EXPECTED_PARTIAL_UNIQUE = [
   "outreach_quote_token_key",
   "outreach_optout_token_key",
   "vendors_promoted_from_key",
+  // PR K (0011): one ACTIVE quote per (vendor, solicitation) — partial on vendor_id NOT NULL + non-terminal status.
+  "vendor_quotes_one_active_per_vendor",
 ];
 
 const EXPECTED_UNIQUE = [

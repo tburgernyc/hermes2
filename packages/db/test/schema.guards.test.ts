@@ -51,6 +51,10 @@ const EXPECTED_POLICIES = new Set<string>([
   // scope (line items have no vendor_id; they inherit isolation from the parent quote).
   "vendor_quote_line_items.vendor_quote_line_items_vendor_org",
   "vendor_quote_line_items.vendor_quote_line_items_vendor_scope",
+  // hermes_vendor audit append (0011, PR K): the audit_log tenant_isolation policy names only
+  // hermes_app/hermes_token, so the logged-in submit's in-tx audit write needs this org-scoped
+  // INSERT policy (PERMISSIVE — paired with an INSERT-only grant; no read/alter/erase).
+  "audit_log.audit_log_vendor_append",
 ]);
 
 const RESTRICTIVE_POLICIES = new Set<string>([
@@ -75,13 +79,16 @@ interface PrivRow {
   token_audit_update: boolean;
   token_audit_delete: boolean;
   token_proposals_insert: boolean;
-  // hermes_vendor: a read-only vendor-facing surface (0009 + 0010 RFQ browse); writes are PR K.
+  // hermes_vendor: read surface (0009 + 0010 RFQ browse) + the PR-K (0011) scoped WRITE surface.
   vendor_quote_select: boolean;
   vendor_quote_insert: boolean;
   vendor_vendors_select: boolean;
   vendor_solicitations_select: boolean;
   vendor_line_items_select: boolean;
   vendor_line_items_insert: boolean;
+  vendor_documents_insert: boolean;
+  vendor_audit_insert: boolean;
+  vendor_audit_select: boolean;
   vendor_users_select: boolean;
   vendor_prospects_select: boolean;
 }
@@ -174,6 +181,9 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
            has_table_privilege('hermes_vendor','solicitations','SELECT')   AS vendor_solicitations_select,
            has_table_privilege('hermes_vendor','vendor_quote_line_items','SELECT') AS vendor_line_items_select,
            has_table_privilege('hermes_vendor','vendor_quote_line_items','INSERT') AS vendor_line_items_insert,
+           has_table_privilege('hermes_vendor','documents','INSERT')        AS vendor_documents_insert,
+           has_table_privilege('hermes_vendor','audit_log','INSERT')        AS vendor_audit_insert,
+           has_table_privilege('hermes_vendor','audit_log','SELECT')        AS vendor_audit_select,
            has_table_privilege('hermes_vendor','users','SELECT')           AS vendor_users_select,
            has_table_privilege('hermes_vendor','vendor_prospects','SELECT') AS vendor_prospects_select`,
       );
@@ -252,16 +262,23 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     expect(privs?.token_proposals_insert).toBe(false);
   });
 
-  it("grants: hermes_vendor has a read-only vendor surface, no users/prospects access, no writes", () => {
+  it("grants: hermes_vendor has its read surface + the PR-K scoped write surface, nothing more", () => {
     expect(privs).toBeDefined();
-    expect(privs?.vendor_quote_select).toBe(true); // reads its own quotes (RLS-narrowed per vendor)
-    expect(privs?.vendor_vendors_select).toBe(true); // reads its own vendor row
-    expect(privs?.vendor_solicitations_select).toBe(true); // browses open in-org RFQs (0010, org-scoped)
-    expect(privs?.vendor_line_items_select).toBe(true); // reads the lines of its own quotes (0010)
-    // Writes (logged-in quote submit, doc upload) are PR K — no INSERT yet, on the quote OR its lines.
-    expect(privs?.vendor_quote_insert).toBe(false);
-    expect(privs?.vendor_line_items_insert).toBe(false);
-    // A vendor role can never read the users table (the link/identity) or other firms' prospects.
+    // Reads (0009 + 0010): own quotes/vendor row, in-org RFQ browse, own quote line items.
+    expect(privs?.vendor_quote_select).toBe(true);
+    expect(privs?.vendor_vendors_select).toBe(true);
+    expect(privs?.vendor_solicitations_select).toBe(true);
+    expect(privs?.vendor_line_items_select).toBe(true);
+    // Writes (0011, PR K): the logged-in submit inserts a quote, its lines, and the VENDOR_QUOTE doc,
+    // each constrained to the vendor's own scope by the RESTRICTIVE WITH CHECK arms (0009/0010).
+    expect(privs?.vendor_quote_insert).toBe(true);
+    expect(privs?.vendor_line_items_insert).toBe(true);
+    expect(privs?.vendor_documents_insert).toBe(true);
+    // audit_log is APPEND-only for the vendor: INSERT (the in-tx submit audit row) but never SELECT —
+    // a vendor can write the log atomically with its quote and can never read, alter, or erase it.
+    expect(privs?.vendor_audit_insert).toBe(true);
+    expect(privs?.vendor_audit_select).toBe(false);
+    // Still no access to the link/identity (users) or other firms' prospects — unchanged by PR K.
     expect(privs?.vendor_users_select).toBe(false);
     expect(privs?.vendor_prospects_select).toBe(false);
   });

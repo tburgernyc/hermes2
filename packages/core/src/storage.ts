@@ -97,3 +97,18 @@ export function quoteDocumentKey(
 ): string {
   return `orgs/${orgId}/prospects/${prospectId}/quotes/${quoteId}.${ext}`;
 }
+
+/**
+ * Org + vendor-scoped object key for a LOGGED-IN vendor's quote document (Phase-6 PR K). Distinct from
+ * quoteDocumentKey: a submitted quote is owned by a vetted vendor, not a prospect, so the path is keyed
+ * by vendorId. Mirrors the per-vendor RLS isolation — every object a vendor writes lives under its own
+ * vendor prefix.
+ */
+export function vendorQuoteDocumentKey(
+  orgId: string,
+  vendorId: string,
+  quoteId: string,
+  ext: string,
+): string {
+  return `orgs/${orgId}/vendors/${vendorId}/quotes/${quoteId}.${ext}`;
+}

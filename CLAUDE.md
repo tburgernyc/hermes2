@@ -274,6 +274,13 @@ role-per-boundary backstop — deferred to keep the PR scoped (rationale documen
   value is never USED inside the migration.
 - A `"use server"` module can only EXPORT async functions, so `InviteState`/helpers stay non-exported
   internals (the client component infers the state type from the action).
+- **CI e2e flake (post-push):** adding `invite.spec` tipped the **documented PR-G cold-start
+  `unstable_update` cookie-persist race** over — `web-e2e` failed twice on UNCHANGED specs (admin-console,
+  then proposal's beforeAll warmup at 24/24 `/admin/totp` bounces), never on `invite.spec`; `db` stayed
+  green (my code is correct). Warmth doesn't prevent it (proposal flaked running 4th). Fix: `retries: 2` in
+  CI only (`playwright.config.ts`) — the standard mitigation; a genuine break still fails all attempts and
+  `auth.spec`'s single-attempt login stays the canary. The REAL fix (harden `/admin/totp`) is still the
+  deferred Phase-2 follow-up.
 
 **Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/core` 29/29 (incl. 4 new token cases).
 The DB suite (+6 invite negatives, drift guards) and web e2e (+`invite.spec`) run in CI (no local Postgres) —

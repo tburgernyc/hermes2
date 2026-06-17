@@ -186,3 +186,61 @@ export const outreachCampaigns = pgTable(
     ),
   ],
 );
+
+/**
+ * VENDOR_INVITE onboarding tokens (Phase-6 portal). An admin mints a signed, single-purpose,
+ * vendor-scoped token for an already-VETTED vendor (apps/web admin action); the vendor visits
+ * /invite/[token], sets a password, and a NEW VENDOR-role user is created pre-linked to that vendor.
+ * SECURITY (§7): only the HMAC-SHA-256 token HASH is stored (never the raw token — the live token
+ * reaches the invitee only via the copyable link). `token_jti` + the conditional `accepted_at IS NULL`
+ * claim make the invite single-use; `accepted_at`/`accepted_user_id` are set together when claimed.
+ * One vendor : N users — a vendor may be invited more than once (distinct users).
+ */
+export const vendorInvites = pgTable(
+  "vendor_invites",
+  {
+    id: uuidPk(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "restrict" }),
+    vendorId: uuid("vendor_id").notNull(),
+    invitedEmail: text("invited_email").notNull(),
+    /** HMAC-SHA-256 hash of the minted token (keyed by TOKEN_SIGNING_SECRET); raw token never stored. */
+    tokenHash: text("token_hash").notNull(),
+    tokenJti: text("token_jti").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true, mode: "date" }),
+    acceptedUserId: uuid("accepted_user_id"),
+    createdBy: uuid("created_by").notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    // The invite's vendor must be in the SAME org (cross-tenant invite is structurally impossible).
+    foreignKey({
+      name: "vendor_invites_vendor_fk",
+      columns: [t.orgId, t.vendorId],
+      foreignColumns: [vendors.orgId, vendors.id],
+    }).onDelete("restrict"),
+    // The minting admin (history preserved — RESTRICT).
+    foreignKey({
+      name: "vendor_invites_created_by_fk",
+      columns: [t.orgId, t.createdBy],
+      foreignColumns: [users.orgId, users.id],
+    }).onDelete("restrict"),
+    // The user created on accept (nullable until claimed; same-org by the composite FK).
+    foreignKey({
+      name: "vendor_invites_accepted_user_fk",
+      columns: [t.orgId, t.acceptedUserId],
+      foreignColumns: [users.orgId, users.id],
+    }).onDelete("restrict"),
+    uniqueIndex("vendor_invites_jti_key").on(t.orgId, t.tokenJti),
+    uniqueIndex("vendor_invites_token_hash_key").on(t.tokenHash),
+    index("vendor_invites_org_idx").on(t.orgId),
+    index("vendor_invites_vendor_idx").on(t.orgId, t.vendorId),
+    // accepted_at and accepted_user_id are set together (claimed) or both null (pending).
+    check(
+      "vendor_invites_accept_pair",
+      sql`(${t.acceptedAt} IS NULL) = (${t.acceptedUserId} IS NULL)`,
+    ),
+  ],
+);

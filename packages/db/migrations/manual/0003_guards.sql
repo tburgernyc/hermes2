@@ -20,7 +20,7 @@ DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'orgs','users','solicitations','award_intelligence','vendor_prospects','vendors',
-    'outreach_campaigns','vendor_quotes','vendor_quote_line_items','proposals',
+    'vendor_invites','outreach_campaigns','vendor_quotes','vendor_quote_line_items','proposals',
     'contracts','contract_milestones','ar_followups','documents'
   ] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_set_updated_at', t);
@@ -103,7 +103,7 @@ DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'users','audit_log','solicitations','award_intelligence','vendor_prospects','vendors',
-    'outreach_campaigns','vendor_quotes','vendor_quote_line_items','proposals',
+    'vendor_invites','outreach_campaigns','vendor_quotes','vendor_quote_line_items','proposals',
     'contracts','contract_milestones','ar_followups','documents'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

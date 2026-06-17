@@ -225,6 +225,64 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase 6 — Vendor portal PR I: VENDOR_INVITE onboarding — **CODE COMPLETE** (2026-06-17)
+
+First slice of the vendor portal (the deferred Phase-5 B4, unblocked by PR-C). An admin mints a single-use
+onboarding link for a VETTED vendor; the invitee opens a PUBLIC `/invite/[token]` page, sets a password, and
+a NEW VENDOR user is created PRE-LINKED to that vendor (1 vendor : N users); they then log in to `/portal`.
+Delivery is **copy-link** (zero automated outbound — §2). No logged-in submit / reads yet (PR J/K).
+
+**What shipped** (branch `phase-6-vendor-onboarding`, off `main @ 5e38dc9`):
+- **`@hermes/db`**: `token_purpose += VENDOR_INVITE`; new **`vendor_invites`** table (composite `(org_id,
+  vendor_id)→vendors` + created_by/accepted_user→users FKs; `(org_id,token_jti)` + `token_hash` UNIQUE;
+  `vendor_invites_accept_pair` CHECK — accepted_at/accepted_user_id set together). Generated migration
+  `0002_freezing_kronos.sql`; `0003_guards.sql` loops extended (updated_at trigger + tenant_isolation RLS).
+  hermes_app gets DML via the existing ON-ALL-TABLES grant; hermes_token/hermes_vendor get NO grant (fail-
+  closed). No `migrate.ts` change (no new manual file).
+- **`@hermes/core` `tokens.ts`** (highest-scrutiny): `TokenPurpose += VENDOR_INVITE`; `TokenPayload.prospect`
+  now optional + `vendor` added; `mintToken` enforces prospect-XOR-vendor per purpose; `verifyToken`
+  purpose-discriminating **overloads** (non-invite → `{prospect:string}`, invite → `{vendor:string}`) so the
+  existing quote/optout callers keep a required `prospect` with NO edits. A quote/opt-out token can never be
+  used on the invite route, and vice-versa (enforced at mint AND verify).
+- **`apps/web`**: admin `inviteVendorUser` (requireAdmin → withOrg → mint + store HASH only + audit
+  `VENDOR_INVITE_CREATED` → returns the one-time `/invite/<token>` link) + `InviteForm` client component
+  (useActionState — shows the link once) wired into `/admin/vendors`. PUBLIC **`/invite/[token]`** page +
+  `acceptInvite` action (TOP-LEVEL, outside the /portal middleware matcher; token-as-auth; role HARDCODED
+  VENDOR; org/vendor from the verified token; email from the stored invite row; single-use conditional
+  `accepted_at IS NULL` claim; IP rate-limited; redirect-status).
+- **Tests**: 4 token unit cases; 6 DB negatives (`negative.vendor-invite.test.ts` — single-use, tenant WITH
+  CHECK, composite-FK cross-org, accept-pair, jti unique, admin-can't-be-vendor-linked); e2e `invite.spec.ts`
+  (admin mint → accept → login → `/portal` linked; invalid token → invalid page). Drift guards updated:
+  EXPECTED_COLUMNS/ENUMS (schema.contract) + EXPECTED_CHECKS/EXPECTED_UNIQUE (schema.constraints).
+
+**Adversarial review** (Workflow: 4 lenses — prime-directive/security, token-contract, db-migration-rls,
+ts-react-next — each finding independently verified): **3 confirmed, 0 CRITICAL.** Fixed: **HIGH** — a missed
+`vendor_invites_accept_pair` in `EXPECTED_CHECKS` (the set-equality drift guard would have failed the `db`
+job); **LOW** — added the two `vendor_invites` full-UNIQUE index names to `EXPECTED_UNIQUE` (coverage gap).
+**MEDIUM (accepted + documented)** — the public `/invite` write runs as full-privilege `hermes_app` (not a
+constrained role like the /quote token path) because it must SELECT vendor_invites + INSERT users (beyond
+hermes_token). Not exploitable as written (parameterized SQL; org/vendor/email/role all server-derived; DB
+CHECKs as belts). **Follow-up:** a dedicated least-privilege `hermes_onboarding` role would restore the
+role-per-boundary backstop — deferred to keep the PR scoped (rationale documented in the action header).
+
+**Non-obvious decisions / footguns:**
+- `/invite` is **top-level**, NOT `/portal/accept` — the middleware matcher gates all `/portal/**` and would
+  bounce the unauthenticated invitee to `/login`.
+- `verifyToken` **overloads** were required: making `TokenPayload.prospect` optional broke the existing
+  quote/optout `payload.prospect` (string) usages until the per-purpose overloads restored the narrow type.
+- `ALTER TYPE ADD VALUE` + `CREATE TABLE` ship in ONE drizzle migration tx — PG16-safe because the new enum
+  value is never USED inside the migration.
+- A `"use server"` module can only EXPORT async functions, so `InviteState`/helpers stay non-exported
+  internals (the client component infers the state type from the action).
+
+**Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/core` 29/29 (incl. 4 new token cases).
+The DB suite (+6 invite negatives, drift guards) and web e2e (+`invite.spec`) run in CI (no local Postgres) —
+the `db` + `web-e2e` jobs. No `ci.yml` change (auto-discovered). No `migrate.ts` change.
+
+**NEXT — PR J** (reads + browse RFQs + portal nav shell): `solicitations` SELECT grant + org RLS for
+hermes_vendor; REPLACE the `documents` `_vendor_scope` policy with the EXISTS-to-parent form; `/portal` nav +
+my quotes/documents/contracts + browse open RFQs. Then PR K (logged-in submit). All `pendingCounsel`.
+
 ### Phase 6 — PR H: Priced bid decision-brief — select→draft workflow + review surface — **CODE COMPLETE** (2026-06-16)
 
 Closes the loop PR G left open: selecting a winning quote now emits a durable HUMAN-GATE event that drafts a

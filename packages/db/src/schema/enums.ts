@@ -108,7 +108,11 @@ export const outreachStatus = pgEnum("outreach_status", [
   "CANCELLED",
 ]);
 
-export const tokenPurpose = pgEnum("token_purpose", ["QUOTE_SUBMISSION", "OPT_OUT"]);
+export const tokenPurpose = pgEnum("token_purpose", [
+  "QUOTE_SUBMISSION",
+  "OPT_OUT",
+  "VENDOR_INVITE", // vendor-scoped account-onboarding token (Phase-6 portal) — see packages/core tokens.ts
+]);
 
 export const quoteStatus = pgEnum("quote_status", [
   "INVITED",

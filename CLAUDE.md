@@ -6,6 +6,29 @@
 
 ---
 
+## 0. Build status — ✅ COMPLETE (2026-06-18)
+
+**All build phases (0–7) are code-complete, tested, and merged to `main`** (Phase 7c via PR #19, merge
+`5f775a2`) — each shipped as its own PR behind a green CI gate. The full pipeline is in the repo: data model
++ RLS guards, auth/RBAC/TOTP, the AI engine (structured outputs + fallback), Inngest durable workflows with
+`waitForEvent` human gates, the tokenized vendor boundary + logged-in portal, the compliance/pricing/bid
+decision-briefs, the admin operator console, the public marketing site, production hardening
+(nonce-CSP/headers/rate-limits/Sentry/heartbeat), and the go-live deploy plumbing (Fly `release_command`
+migrations + `/api/health` check). See §11 for the per-PR record and `PROJECT_PLAN.md` for the phase map.
+
+**What remains is operator-side, NOT a build task:** the Tier-1 `fly deploy` (`DEPLOY.md §7` — secrets incl.
+`MIGRATION_DATABASE_URL` + the `hermes_app` LOGIN, credential rotation, `HERMES_ACTIVE_ORG_IDS`, branch
+protection, external heartbeat, deploy + verify) and the **government-contracts-counsel sign-off** before any
+real bid. Everything ships `pendingCounsel`; the no-auto-submit + counsel-review gates (§2/§6) structurally
+block a live submission until `readyForLiveSubmission`.
+
+> This contract stays fully in force. The build being "done" changes nothing about how you must behave:
+> the **Prime Directive (§2)** is permanent, and any further work (the deferred tech-debt, fixes, or new
+> feature phases) follows the same cadence — **one change = one PR = one green CI gate, the operator merges**
+> — and updates §11 + memory at the end.
+
+---
+
 ## 1. What this system is
 
 Hermes 2.0 is an AI-assisted federal IT-contracting PMO for **Burger Consulting LLC**

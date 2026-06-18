@@ -42,6 +42,21 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Canonical host. The public site serves from the apex `burgergov.com`; permanently redirect the `www`
+  // subdomain to it so there is ONE canonical origin (clean SEO, and a single true origin for AUTH_URL /
+  // APP_BASE_URL / CSP `self`). Host-matched, so it fires ONLY for real www.burgergov.com traffic — never
+  // localhost / e2e (host = localhost) nor the *.fly.dev hostname (host ≠ www.burgergov.com). Lives here
+  // (not middleware) so it also covers /api + static assets, which the middleware matcher deliberately skips.
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.burgergov.com" }],
+        destination: "https://burgergov.com/:path*",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 // Wrap with Sentry. Source maps are generated + uploaded ONLY when SENTRY_AUTH_TOKEN is present (set in

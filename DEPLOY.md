@@ -370,6 +370,77 @@ curl -sI https://hermes2.fly.dev/ | grep -iE "content-security-policy|strict-tra
   point-in-time / branch restore (Neon console → Restore), then redeploy the matching prior image. Treat
   this as the last resort; the fail-closed release_command makes it rare.
 
+### 7.8 Custom domain — `burgergov.com` (apex canonical; `www` → apex)
+
+The public site serves from the **apex `burgergov.com`** (canonical); `www.burgergov.com` permanently
+redirects to it (the app's `next.config.ts redirects()` — host-matched, so it only fires for real www
+traffic). DNS is hosted at **Zoho**; the Fly app is `hermes2`. **Do the §1–§7 deploy FIRST** — the live
+`hermes2.fly.dev` image must already be the current build, or the apex will serve a stale site.
+
+**0. Make the DNS zone live at Zoho.** As of setup, `burgergov.com` does not resolve at all (NXDOMAIN — no
+nameserver delegation). In **Zoho (Domains → My Domains → `burgergov.com` → Manage DNS)** confirm the zone
+exists and the registrar's nameservers point to Zoho. Nothing below works until
+`host -t NS burgergov.com` returns Zoho nameservers.
+
+**1. Allocate a dedicated IPv4 for the apex** (the naked apex needs an A record to a stable IP — Zoho cannot
+CNAME-flatten the apex; IPv6 is already dedicated + free):
+
+```bash
+fly ips list -a hermes2            # note the dedicated IPv6; check whether a dedicated v4 already exists
+fly ips allocate-v4 -a hermes2     # dedicated IPv4 (~$2/mo) — required for the apex A record
+```
+
+**2. Add the certificates** (Fly prints the exact records to create):
+
+```bash
+fly certs add burgergov.com -a hermes2
+fly certs add www.burgergov.com -a hermes2
+fly certs show burgergov.com -a hermes2       # re-prints the A/AAAA + _acme-challenge target + status
+fly certs show www.burgergov.com -a hermes2
+```
+
+**3. Add the DNS records in Zoho** (Domains → Manage DNS → Manage Records; TTL 300 during cutover). Use the
+values from `fly ips list` / `fly certs show`:
+
+| Host | Type | Value | Purpose |
+|---|---|---|---|
+| `@` | A | `<dedicated Fly IPv4>` | apex → app |
+| `@` | AAAA | `<Fly IPv6>` | apex → app (IPv6) |
+| `_acme-challenge` | CNAME | `<from fly certs show burgergov.com>` | Let's Encrypt validation + renewal |
+| `www` | CNAME | `hermes2.fly.dev.` | www → app (so the www→apex redirect can run) |
+| `_acme-challenge.www` | CNAME | `<from fly certs show www.burgergov.com>` | validation for the www cert |
+
+**Leave existing MX / SPF / DKIM / Zoho-verification TXT records untouched** — email (Resend on `burgergov.com`)
+is unaffected; only ADD the A/AAAA/CNAME web records.
+
+**4. Wait for issuance:**
+
+```bash
+fly certs check burgergov.com -a hermes2      # poll until status = "issued"
+fly certs check www.burgergov.com -a hermes2
+```
+
+**5. Point the app's canonical URL at the apex + restart:**
+
+```bash
+fly secrets set AUTH_URL="https://burgergov.com" APP_BASE_URL="https://burgergov.com" -a hermes2
+```
+
+`AUTH_URL` is load-bearing — Auth.js callbacks **and** the same-origin CSRF check (`packages/core/csrf.ts`)
+compare against it; a host/scheme mismatch breaks login. `APP_BASE_URL` builds the signed `/quote` `/optout`
+`/invite` links. Setting secrets triggers a rolling restart.
+
+**6. Verify:**
+
+```bash
+curl -sI https://burgergov.com      | head      # 200 + the security headers (CSP/HSTS/…)
+curl -sI https://www.burgergov.com  | head      # 308 → https://burgergov.com
+curl -s  https://burgergov.com/api/health        # {"status":"ok"}
+```
+
+> **Cleanup:** a stray Fly app **`hermes2-web`** exists from an earlier scaffold (deployed Jun 10). Confirm
+> it is unused and `fly apps destroy hermes2-web` so it can't be confused with the real `hermes2` app.
+
 ---
 
 ## Gotchas (read before first deploy)

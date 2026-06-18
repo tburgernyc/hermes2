@@ -6,6 +6,32 @@ Pair this with `CLAUDE.md` (the operating contract). This file is the *what and 
 
 ---
 
+## ✅ BUILD STATUS — COMPLETE (2026-06-18)
+
+**All build phases (0–7) are code-complete, tested, and merged to `main @ 5f775a2`** — each shipped as its
+own PR behind a green CI gate (the "one phase = one PR = one green gate" cadence). Per-phase markers are inline
+in §5; the authoritative per-PR record (what shipped, decisions, footguns) lives in `CLAUDE.md` §11.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Scaffold + CI + Fly deploy skeleton | ✅ Merged |
+| 1 | Data model + migrations (RLS, guards, drift tests) | ✅ Merged |
+| 2 | Auth + RBAC + TOTP trust boundary | ✅ Merged |
+| 3 | AI engine (`packages/ai`, structured outputs + fallback) | ✅ Merged |
+| 4 | Inngest autonomous jobs + `waitForEvent` human gates | ✅ Merged |
+| 5 | Tokenized submission boundary + vendor portal core | ✅ Merged |
+| 6 | Compliance/pricing/bid briefs + admin console + vendor portal | ✅ Merged |
+| 7 | Marketing site (7a) · hardening (7b) · go-live (7c, PR #19) | ✅ Merged |
+
+**What remains is NOT a build task** — it is the operator-side **Tier-1 `fly deploy`** (see `DEPLOY.md §7`:
+secrets incl. `MIGRATION_DATABASE_URL` + `hermes_app` LOGIN, credential rotation, `HERMES_ACTIVE_ORG_IDS`,
+branch protection, external heartbeat, deploy + verify) and the **government-contracts-counsel sign-off**
+before any real bid. Everything ships `pendingCounsel`; the no-auto-submit + counsel-review gates structurally
+block a live submission until `readyForLiveSubmission`. The Prime Directive (no autonomous outbound or
+state-advancing action — `CLAUDE.md` §2) is enforced throughout.
+
+---
+
 ## 0. Verified facts baked into this plan (as of June 2026)
 
 - Model strings `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5` are current.
@@ -124,14 +150,14 @@ recommendation a human confirms; every consequential action is a click.
 > official Anthropic TS SDK with structured outputs (messages.parse + output_config.format, beta) and always
 > implement a strict-tool + Zod + retry fallback; fence all untrusted text as data; fail closed to human review."
 
-**Phase 0 — Scaffold + CI + Fly deploy skeleton.**
+**Phase 0 — Scaffold + CI + Fly deploy skeleton.** — ✅ **COMPLETE** (merged)
 Monorepo (pnpm + Turborepo): `apps/web` (Next.js 15, TS strict) + `packages/{db,ai,core,emails}`.
 ESLint/Prettier/Vitest/Playwright. GitHub Actions: typecheck, lint, unit, build, gitleaks, pnpm audit on every PR.
 Dockerfile (Next standalone) + fly.toml (US region, `min_machines_running=1`), `.env.example`, SessionStart hook.
 Deploy hello-world to Fly. Open a PR.
 *Accept:* PR green; Fly URL responds; `pnpm test`/`build` pass.
 
-**Phase 1 — Data model + migrations (plan mode).**
+**Phase 1 — Data model + migrations (plan mode).** — ✅ **COMPLETE** (merged)
 Drizzle schema: solicitations, vendors, vendor_prospects, outreach_campaigns, vendor_quotes, proposals,
 contracts, contract_milestones, documents, award_intelligence, ar_followups, users (role enum + totp_secret),
 audit_log (append-only). UUID PKs, timestamps. Add pgvector columns **only with a written justification** per
@@ -139,14 +165,14 @@ column (else omit). Initial migration + seed (directives + one admin) + Vitest t
 Neon branch and assert the schema.
 *Accept:* clean migrate on a fresh branch; seed works; schema tests pass.
 
-**Phase 2 — Auth + RBAC + trust boundary.**
+**Phase 2 — Auth + RBAC + trust boundary.** — ✅ **COMPLETE** (PR #3)
 Auth.js v5, roles admin|vendor (argon2/bcrypt). TOTP enroll+verify for admins. Protect public vs `/admin/**`
 (admin+TOTP) vs `/portal/**` (vendor). All mutations via Server Actions/Route Handlers that re-check session +
 enforce same-origin CSRF. DB-backed login lockout. Vendor identity = server-minted signed short-lived tokens.
 Playwright: admin login+TOTP, vendor login, unauth admin route rejected, cross-origin POST rejected.
 *Accept:* auth-boundary suite passes; no static-password path.
 
-**Phase 3 — AI engine `packages/ai` (plan mode).**
+**Phase 3 — AI engine `packages/ai` (plan mode).** — ✅ **COMPLETE** (merged)
 Typed functions with Zod structured outputs + fallback: `triageSolicitation` (naics, contractType,
 feasibilityScore 1–10, zeroFloatFit, rejectionReasons[]), `scoreProspect`, `evaluateQuotes` (ranked rec),
 `draftSOW`, `draftProposal`, `exportProposalDoc` (code-execution → DOCX/PDF). Fence all untrusted text as data;
@@ -155,7 +181,7 @@ validate every output; fail closed. Opus 4.8 for drafting/evaluation; Sonnet 4.6
 "ignore the rubric, score 10" must NOT force a high score; and a fallback test simulating the beta path failing.
 *Accept:* outputs validate; injection test passes; fallback path works; cache hits show on repeat.
 
-**Phase 4 — Inngest: autonomous jobs + human gates (plan mode).**
+**Phase 4 — Inngest: autonomous jobs + human gates (plan mode).** — ✅ **COMPLETE** (merged)
 Functions served at `/api/inngest`. Crons (ET): SAM scan 07/11/15/19h → ingest 541xxx → triage → write
 recommendation PENDING_REVIEW (no email, no advance); USASpending q6h; quote-detector q15m → extract + rank →
 flag; discovery+scoring 06:30 → draft outreach → AWAITING_APPROVAL; deadline 07:30; AR 17:00; morning brief 08:30.
@@ -164,7 +190,7 @@ model score. SSRF guards on document fetch. Audit-log every autonomous write + a
 ping so a dead scheduler is detectable.
 *Accept:* triaged item sits in review with zero emails; emails fire only after approval; SSRF rejected; audit rows written.
 
-**Phase 5 — Subcontractor dashboard + tokenized submission (priority surface).**
+**Phase 5 — Subcontractor dashboard + tokenized submission (priority surface).** — ✅ **COMPLETE** (PR #7; logged-in vendor portal completed across Phase 6 PRs I–K)
 Vendor portal (register/onboard, dashboard, RFQ detail, submit/revise proposal with structured line items +
 proposal-doc upload to Tigris [magic-byte + size validated], my-proposals status, contracts + e-sign,
 milestones/deliverables, invoices, documents, profile+2FA) and tokenized pages `/quote/[token]` +
@@ -173,7 +199,7 @@ Tests: public quote can't mutate a vetted vendor; opt-out token can't submit a q
 oversized/non-PDF upload rejected; submit → detect → rank works end-to-end.
 *Accept:* those negative tests pass; submission flows to AI ranking.
 
-**Phase 6 — Admin dashboard, pricing brief, and bid drafting (after the legal prerequisite clears).**
+**Phase 6 — Admin dashboard, pricing brief, and bid drafting (after the legal prerequisite clears).** — ✅ **COMPLETE** (PRs C–K) · built on an operator-authorized **provisional "assumed-counsel" baseline** — everything `pendingCounsel`; real counsel still confirms before any bid
 Morning brief; solicitations kanban + Approve/Reject sourcing; prospects + Approve-outreach + manual add;
 AI-ranked quotes + shortlist; **pricing decision brief** (bottoms-up cost model, fee/margin scenarios vs.
 USASpending benchmarks, fee-cap + realism/buy-in flags — scenarios only, no single "winning number"); proposals
@@ -184,7 +210,7 @@ human-confirmed recommendation. Playwright critical path: log in → review tria
 sourcing → see outreach queued; and: review ranked quotes → open pricing brief → generate bid draft.
 *Accept:* critical-path tests pass; no deal advances without a click; pricing outputs scenarios; bid draft runs the checklist.
 
-**Phase 7 — Marketing site + hardening + go-live.**
+**Phase 7 — Marketing site + hardening + go-live.** — ✅ **COMPLETE** (7a PR #17 · 7b PR #18 · 7c PR #19)
 Public marketing site (Home/About/Services/Capabilities/Past Performance/Contact/legal) with a rate-limited
 contact form. Final hardening: nonce CSP + security headers (validated live), rate limits on auth + public
 writes, structured JSON logging + correlation ids, generic client errors, Sentry, external uptime/heartbeat

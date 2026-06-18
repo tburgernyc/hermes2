@@ -24,6 +24,16 @@ primary_region = "iad"   # US East (Ashburn, VA) — close to Neon US East + low
 [build]
   dockerfile = "Dockerfile"
 
+# Run DB migrations as the OWNER role in a one-off Machine BEFORE any new Machine takes traffic.
+# A non-zero exit ABORTS the deploy (Fly does not roll the new release out), so a failed or
+# partial migration never reaches production. The migrator is a compiled, self-contained bundle
+# baked into the image (Dockerfile `migrator` stage); it reads MIGRATION_DATABASE_URL (the Neon
+# OWNER role) from Fly secrets — prod DB creds therefore never touch CI (CLAUDE.md §4/§7). The
+# migrations are idempotent, so a re-run (e.g. a retried deploy) is safe. release_command replaces
+# CMD but NOT ENTRYPOINT; default timeout is 5 min (raise via `release_command_timeout` if needed).
+[deploy]
+  release_command = "node /app/migrator/dist/migrate.js"
+
 [env]
   PORT = "3000"
 
@@ -33,6 +43,17 @@ primary_region = "iad"   # US East (Ashburn, VA) — close to Neon US East + low
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 1
+
+  # Liveness health check — the Fly proxy routes traffic to a Machine only once GET /api/health
+  # passes, and flags/restarts a Machine that starts failing it. /api/health is dependency-free
+  # (it does NOT touch the DB), so a transient DB blip can't flap the Machine: liveness ≠ readiness.
+  # `method`/`protocol` are lowercase per the Fly schema; the proxy speaks http to internal_port.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "get"
+    timeout = "5s"
+    path = "/api/health"
 
   [http_service.concurrency]
     type = "requests"

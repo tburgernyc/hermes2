@@ -75,19 +75,31 @@ the vars into your interactive shell:
 fly secrets import < .env
 ```
 
-Or set them individually (use this for rotating one key without touching others):
+Or set them individually (use this for rotating one key without touching others). This is the
+**complete** runtime set — every key here mirrors `.env.example`; the trailing comments flag the
+load-bearing ones for Phase-7c go-live:
 
 ```bash
 fly secrets set \
   ANTHROPIC_API_KEY="..." \
   VOYAGE_API_KEY="..." \
   DATABASE_URL="..." \
+  DATABASE_URL_UNPOOLED="..." \
+  MIGRATION_DATABASE_URL="..." \
   AUTH_SECRET="$(openssl rand -base64 33)" \
   AUTH_URL="https://hermes2.fly.dev" \
+  TOTP_ENCRYPTION_KEY="..." \
   TOKEN_SIGNING_SECRET="..." \
   INNGEST_EVENT_KEY="..." \
   INNGEST_SIGNING_KEY="..." \
+  HERMES_ACTIVE_ORG_IDS="..." \
+  HEARTBEAT_URL="..." \
+  APP_BASE_URL="https://burgergov.com" \
+  OUTREACH_FROM="Burger Consulting <opportunities@burgergov.com>" \
+  OUTREACH_POSTAL_ADDRESS="..." \
   RESEND_API_KEY="..." \
+  TIGRIS_ENDPOINT="https://fly.storage.tigris.dev" \
+  TIGRIS_REGION="auto" \
   TIGRIS_BUCKET="..." \
   TIGRIS_ACCESS_KEY_ID="..." \
   TIGRIS_SECRET_ACCESS_KEY="..." \
@@ -98,6 +110,17 @@ fly secrets set \
 # Verify which secrets exist (shows names + digests only, never values):
 fly secrets list
 ```
+
+> **`MIGRATION_DATABASE_URL` is REQUIRED for go-live (Phase 7c).** The Fly `[deploy] release_command`
+> runs DB migrations as this **owner** DSN before the new release takes traffic (see §7). Without it the
+> release command fails fast (`MIGRATION_DATABASE_URL … is required`) and the deploy aborts — by design.
+>
+> **`HERMES_ACTIVE_ORG_IDS`** must be the seeded firm-org UUID (resolve it per §7) or the Inngest crons +
+> the public contact form's `firmOrgId()` have nothing to operate on.
+>
+> **CI-only — NEVER `fly secrets`:** `NEON_API_KEY`, `NEON_PROJECT_ID`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`,
+> `SENTRY_PROJECT` live in **GitHub Actions secrets only** (they must never reach the running app — §4/§7).
+> `PORT` is set in `fly.toml [env]`, not a secret.
 
 > **Sentry env (§6).** `SENTRY_DSN` (server/edge) + `NEXT_PUBLIC_SENTRY_DSN` (browser) are the SAME DSN
 > value — it is **not** a secret (it ships in the client bundle by design); leave both unset to disable
@@ -208,14 +231,144 @@ The `cron-heartbeat` Inngest function pings `HEARTBEAT_URL` every ~10 minutes. Y
 
 ### Liveness probe
 
-`GET /api/health` returns `{"status":"ok"}` (dependency-free — liveness, not readiness). The Fly health
-check that hits it is wired in **Phase 7c** (`fly.toml [http_service.checks]`); until then verify manually:
+`GET /api/health` returns `{"status":"ok"}` (dependency-free — liveness, not readiness). As of **Phase 7c**
+the Fly health check that hits it is **wired** (`fly.toml [[http_service.checks]]`, 30s interval, 10s grace)
+— the proxy routes traffic to a Machine only once it passes, and flags one that starts failing. Verify:
 
 ```bash
 curl -s https://hermes2.fly.dev/api/health   # -> {"status":"ok"}
 # Spot-check the security headers + CSP are present:
 curl -sI https://hermes2.fly.dev/ | grep -iE "content-security-policy|strict-transport|x-frame|x-content-type|referrer-policy|permissions-policy"
 ```
+
+---
+
+## 7. Go-live (Phase 7c) — migrations, checklist, verification, rollback
+
+Phase 7c wires the production **DB-migration step** into the deploy and ships the Fly health check. Read this
+section in full before the first Tier-1 deploy.
+
+### 7.1 How production migrations run (`[deploy] release_command`)
+
+`fly.toml` declares:
+
+```toml
+[deploy]
+  release_command = "node /app/migrator/dist/migrate.js"
+```
+
+On every `fly deploy`, Fly runs that command in a **one-off Machine** built from the new image **before any
+new Machine takes traffic**. It is the SAME `migrate.ts` the CI `db`/`inngest`/`web-e2e` jobs run on every PR
+— compiled (the `migrator` Docker stage) into a self-contained bundle (its own `node_modules` with
+`pg`/`drizzle-orm`/`dotenv`, the built `dist/migrate.js`, and the `migrations/` SQL tree). It connects as
+**`MIGRATION_DATABASE_URL`** (the Neon **owner** role) and applies, in order: extensions → roles → tables →
+guards (triggers + RLS) → grants → the auth/token/vendor role migrations, then **asserts** the
+`sync_line_item_contract_type` trigger is still `SECURITY DEFINER` (a security post-condition).
+
+- **Fail-closed deploy.** A non-zero exit **aborts the deploy** — Fly does not roll the new release out and
+  the previous release keeps serving. A broken or partial migration therefore never reaches production.
+- **Idempotent + resumable.** Every manual step is `IF NOT EXISTS` / `OR REPLACE`; drizzle records applied
+  table migrations in `__drizzle_migrations`. A retried deploy (or one with no new migrations) is a safe
+  no-op. Migrations are **forward-only** — there is no down-migration (see 7.7 for a bad-migration rollback).
+- **Creds stay out of CI.** `MIGRATION_DATABASE_URL` is a **Fly secret**, never a GitHub secret — prod DB
+  credentials never touch CI (which runs the same migrations against throwaway pgvector containers / Neon
+  branches). This is the whole reason migrations run here and not in a GitHub Actions job (CLAUDE.md §4/§7).
+
+### 7.2 Neon roles: owner (migrations) vs. runtime (app)
+
+Two distinct roles — never collapse them:
+
+| Secret | Role | Used for |
+|---|---|---|
+| `MIGRATION_DATABASE_URL` | **owner** (`neondb_owner`; has `CREATEROLE` via `neon_superuser`) | the release_command: DDL + `REVOKE`/`GRANT` + RLS. The REVOKE/GRANT only bind when run as owner. |
+| `DATABASE_URL` | **`hermes_app`** (non-owner, RLS-bound, pooled) | the app runtime. RLS attaches automatically *because* it is a non-owner. |
+
+`migrations/manual/0001_roles.sql` creates `hermes_app`/`hermes_token` **NOLOGIN, no password** (no secrets
+in the repo) and is idempotent (`IF NOT EXISTS` → CREATE). So you must, **as the owner, set the app role's
+LOGIN + password out-of-band** before the app can connect as it:
+
+```sql
+-- Run once in the Neon SQL editor (or any owner connection), BEFORE the first deploy:
+ALTER ROLE hermes_app WITH LOGIN PASSWORD '<strong-random>';
+```
+
+Because `0001` only CREATEs when absent, this LOGIN/password is **preserved** across every future
+release_command run. Put `hermes_app:<password>@…` into `DATABASE_URL`. (The membership grants the app role
+needs — `hermes_app → hermes_token / hermes_vendor / hermes_auth WITH INHERIT FALSE` — are applied by the
+release_command itself, so they no longer need a separate manual confirmation step.)
+
+**Rotate the exposed creds before go-live.** The Neon DB password and `NEON_API_KEY` were pasted in chat
+during Phase 1 — rotate both (Neon console → reset role password; regenerate the API key + update the GitHub
+Actions secret).
+
+### 7.3 Resolve `HERMES_ACTIVE_ORG_IDS`
+
+The crons + the public contact form resolve the firm org from this env (comma-separated UUIDs; single-tenant
+→ one id). After the first migrate + seed, read the seeded org's id as the owner and set the secret:
+
+```sql
+SELECT id FROM orgs ORDER BY created_at LIMIT 1;   -- copy the UUID
+```
+```bash
+fly secrets set HERMES_ACTIVE_ORG_IDS="<that-uuid>"
+```
+
+### 7.4 Branch-protection required checks
+
+Set these as **required** status checks on `main` (Settings → Branches):
+
+- **Required:** `build`, `db`, `web-e2e`, `inngest`, `gitleaks`.
+- **NOT required** (signal only — green-when-skipped or environment-dependent): `db-acceptance` (skips
+  without Neon secrets), `audit` (advisory), `docker-build` (a Docker/runner hiccup must not block a PR,
+  but watch it — it is the only check that proves the deployable image assembles).
+
+### 7.5 Pre-deploy checklist
+
+- [ ] All **required** CI checks green on `main` (and `docker-build` green — it proves the image assembles).
+- [ ] `fly secrets list` shows the full §2 set — incl. `MIGRATION_DATABASE_URL`, `DATABASE_URL`,
+      `AUTH_SECRET`, `TOTP_ENCRYPTION_KEY`, `TOKEN_SIGNING_SECRET`, `HERMES_ACTIVE_ORG_IDS`, `AUTH_URL`.
+- [ ] `hermes_app` has LOGIN + password (7.2); `DATABASE_URL` uses it.
+- [ ] `MIGRATION_DATABASE_URL` is the **owner** DSN (7.1 / 7.2).
+- [ ] Neon owner password + `NEON_API_KEY` rotated (7.2).
+- [ ] `ANTHROPIC_API_KEY` is **NOT** exported in the deploy shell (CLAUDE.md §4) — `env | grep -i anthropic`
+      returns nothing. `fly secrets set` it instead.
+- [ ] `HEARTBEAT_URL` points at the external monitor (§6); Sentry DSN set or intentionally deferred (§6).
+- [ ] `AUTH_URL` / `APP_BASE_URL` are the real public URLs.
+
+### 7.6 Deploy + post-deploy verification
+
+```bash
+fly deploy
+```
+
+Watch the release command apply migrations, then verify:
+
+```bash
+# 1. release_command log ends with "✓ migrations complete" (else the deploy aborts — see 7.7).
+fly logs | grep -E "migrations complete|release_command"
+
+# 2. Liveness + headers (§6).
+curl -s  https://hermes2.fly.dev/api/health     # -> {"status":"ok"}
+curl -sI https://hermes2.fly.dev/ | grep -iE "content-security-policy|strict-transport|x-frame"
+
+# 3. App health: the login page renders, an admin can log in + pass TOTP, /admin loads.
+# 4. The external heartbeat monitor logged a ping within ~10 min (§6).
+# 5. (If Sentry on) trigger one test error; confirm it appears with secrets/PII scrubbed + no 42501 (§6).
+```
+
+### 7.7 Rollback
+
+- **Migration failed → the deploy already aborted.** The old release keeps serving; nothing to roll back.
+  Fix the migration and re-deploy (idempotent, so the re-run resumes cleanly).
+- **Bad code in a new release.** List releases and redeploy the prior image (the release_command re-runs,
+  idempotent + safe):
+  ```bash
+  fly releases                       # find the prior version + image ref
+  fly deploy --image <registry.fly.io/hermes2:deployment-XXXX>
+  ```
+- **A migration applied but is wrong** (forward-only — no down-migration). Restore the database with Neon's
+  point-in-time / branch restore (Neon console → Restore), then redeploy the matching prior image. Treat
+  this as the last resort; the fail-closed release_command makes it rare.
 
 ---
 

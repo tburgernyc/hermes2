@@ -1,33 +1,55 @@
+/*
+ * Public site header — a floating "glass pill" nav (Phase 8). Sticky at the top; the inner pill is a
+ * frosted glassmorphism container with a light-catching border and soft diffuse shadow. Nav links are
+ * tiny tracked mono caps — the high-contrast counterpoint to the thin display headers. AA-safe: the
+ * pill stays high-opacity white over the off-white studio ground, so the dark link text stays ≈6.9:1 (AA).
+ */
 .header {
-  border-bottom: 1px solid var(--color-line);
-  background: var(--color-bg);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: var(--space-3) var(--space-4);
 }
-
 .inner {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: var(--space-4);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
   flex-wrap: wrap;
+  padding: 0.55rem 0.7rem 0.55rem 1.1rem;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 0 0 1px rgba(16, 22, 29, 0.04);
+}
+@media (max-width: 640px) {
+  .inner {
+    border-radius: var(--radius-lg);
+  }
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  font-weight: 700;
-  font-size: 1.15rem;
-  color: var(--color-ink);
+  gap: 0.55rem;
+  font-weight: 600;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+  color: var(--studio-ink);
   text-decoration: none;
 }
 .brand:hover {
   text-decoration: none;
 }
 .mark {
-  color: var(--color-primary);
+  color: var(--studio-primary);
   display: inline-flex;
 }
 
@@ -37,12 +59,15 @@
   gap: var(--space-6);
   flex-wrap: wrap;
 }
-
 .navLink {
-  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--studio-muted);
   text-decoration: none;
-  font-weight: 500;
 }
 .navLink:hover {
-  color: var(--color-link);
+  color: var(--studio-primary);
 }

@@ -28,6 +28,13 @@ export default function HomePage(): JSX.Element {
   return (
     <>
       <section className={styles.hero}>
+        <div className={styles.crystal} aria-hidden="true">
+          <span className={`${styles.shape} ${styles.shapeA}`} />
+          <span className={`${styles.shape} ${styles.shapeB}`} />
+          <span className={`${styles.shape} ${styles.shapeC}`} />
+          <span className={`${styles.orb} ${styles.orbA}`} />
+          <span className={`${styles.orb} ${styles.orbB}`} />
+        </div>
         <div className={styles.heroInner}>
           <span className={styles.kicker}>Founder-led federal IT</span>
           <h1 className={styles.heroTitle}>

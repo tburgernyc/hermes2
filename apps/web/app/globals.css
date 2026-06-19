@@ -33,7 +33,28 @@
   --maxw: 1080px;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --shadow: 0 1px 2px rgba(16, 22, 29, 0.06), 0 8px 24px rgba(16, 22, 29, 0.06);
+
+  /* ---- Marketing "studio" layer (Phase 8 visual polish) ----------------------------------------
+   * A premium light-mode studio palette + glassmorphism tokens used ONLY by the public marketing
+   * pages (scoped under .shell in marketing.module.css; admin/portal keep the --color-* set above).
+   * Additive — nothing above changes. Every text/background pair below is chosen for WCAG 2.1 AA. */
+  --studio-bg: #f7f8fb; /* luminous off-white — omnidirectional "studio" light */
+  --studio-bg-tint: #eef2f8; /* alternating section wash */
+  --studio-ink: #0f1115; /* near-black body text on studio-bg ≈ 18:1 */
+  --studio-muted: #475569; /* secondary text ≈ 6.9:1 on studio-bg / 6.4:1 on tint (AA) */
+  --studio-line: #e2e8f0;
+  --studio-primary: #0b2e59; /* brand navy (white on it ≈ 12:1) */
+
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.7); /* light-catching edge */
+  --glass-shadow: 0 1px 2px rgba(16, 22, 29, 0.04), 0 16px 40px -16px rgba(16, 22, 29, 0.18);
+  --iris-shadow: 0 26px 70px -28px rgba(48, 84, 150, 0.3); /* subtle navy/steel lift */
+
+  --radius-pill: 999px;
+  --radius-xl: 22px;
 }
 
 *,

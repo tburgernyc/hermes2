@@ -231,11 +231,22 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     expect([...restrictivePolicies].sort()).toEqual([...RESTRICTIVE_POLICIES].sort());
   });
 
-  it("creates non-owner roles with no login / no BYPASSRLS / no superuser", () => {
+  it("creates non-owner roles with no BYPASSRLS / no superuser (NOLOGIN except the app connection role)", () => {
+    // LOGIN is operator-controlled per environment for hermes_app — the app's CONNECTION role. The
+    // migrations create it NOLOGIN (so the fresh pgvector CI container has it NOLOGIN), but the go-live
+    // step `ALTER ROLE hermes_app WITH LOGIN PASSWORD …` (DEPLOY.md §7.2) enables it in production, and a
+    // db-acceptance Neon branch forked from that project INHERITS the LOGIN. LOGIN is therefore NOT a
+    // security invariant for hermes_app and is not asserted here. The SET-ROLE-only roles
+    // (hermes_token/hermes_auth/hermes_vendor) are reached via SET LOCAL ROLE and must NEVER log in.
+    // The real, environment-independent security invariants — NOBYPASSRLS (tenant isolation) and
+    // NOSUPERUSER — stay strict for ALL four roles.
+    const loginAllowed = new Set(["hermes_app"]);
     for (const name of ["hermes_app", "hermes_token", "hermes_auth", "hermes_vendor"]) {
       const r = roles.get(name);
       expect(r, `role ${name}`).toBeDefined();
-      expect(r?.canLogin, `${name} canLogin`).toBe(false);
+      if (!loginAllowed.has(name)) {
+        expect(r?.canLogin, `${name} canLogin`).toBe(false);
+      }
       expect(r?.bypassRls, `${name} bypassRls`).toBe(false);
       expect(r?.super, `${name} super`).toBe(false);
     }

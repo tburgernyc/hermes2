@@ -18,7 +18,10 @@ test.describe("security headers + CSP", () => {
     const csp = h["content-security-policy"];
     expect(csp, "CSP header present").toBeTruthy();
     expect(csp).toMatch(/script-src 'self' 'nonce-[^']+' 'strict-dynamic'/);
-    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).toMatch(/style-src 'self' 'nonce-[^']+'/);
+    expect(csp, "no unsafe-inline anywhere in the CSP (script or style)").not.toContain(
+      "'unsafe-inline'",
+    );
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("base-uri 'self'");
@@ -51,8 +54,9 @@ test.describe("security headers + CSP", () => {
       if (CSP_VIOLATION_RE.test(e.message)) violations.push(e.message);
     });
 
-    // /, marketing, login (framework scripts) + an invalid-invite page (exercises inline style-src).
-    for (const path of ["/", "/login", "/contact", "/invite/not-a-valid-token"]) {
+    // /, marketing, login (framework scripts), an invalid-invite page, and a 404 (the custom not-found
+    // page — proving Next's default inline-styled error page is NOT used under the strict style-src).
+    for (const path of ["/", "/login", "/contact", "/invite/not-a-valid-token", "/no-such-page-xyz"]) {
       violations.length = 0;
       await page.goto(path);
       await page.waitForLoadState("load");

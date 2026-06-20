@@ -204,9 +204,10 @@ These modules are decision-support, not magic. Build them to these honest specs.
   CSP (NO script `unsafe-inline`/`unsafe-eval`) from `middleware.ts`, plus the static set (HSTS,
   `X-Frame-Options`, nosniff, Referrer-Policy, Permissions-Policy deny-list, COOP) from `next.config.ts`.
   Applied **globally** — the middleware matcher spans ALL html routes so the public token/marketing pages
-  that bypass the auth gate are covered. `style-src` keeps `'unsafe-inline'` (admin/portal pages render
-  React inline `style={}` attributes; style injection ≠ script injection, and untrusted text is
-  JSX-autoescaped). HSTS + `upgrade-insecure-requests` are **https-gated** (off on the plaintext e2e
+  that bypass the auth gate are covered. `style-src` is **also strict as of Phase 9 PR D** — `'self'` +
+  the per-request **nonce**, **NO `'unsafe-inline'`** (the app is fully CSS Modules with zero inline
+  `style={}`; Next's default inline-styled error pages are replaced by custom `not-found`/`global-error`
+  pages, and Sentry reports root errors). HSTS + `upgrade-insecure-requests` are **https-gated** (off on the plaintext e2e
   server). The browser CSP allowlists ONLY browser-reachable hosts (self, Tigris, Sentry ingest) — never
   Anthropic/Resend/Voyage (§4). See `lib/security-headers.ts`.
 - **Rate-limiting (Phase 7b):** HTTP-layer per-IP throttle on **login** (in the Credentials `authorize`,

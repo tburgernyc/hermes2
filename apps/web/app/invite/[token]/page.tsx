@@ -10,6 +10,11 @@ import type { JSX } from "react";
 import { TokenError, hashToken, verifyToken } from "@hermes/core";
 import { and, eq, isNull, vendorInvites, vendors, withOrg } from "@hermes/db";
 
+import { Alert } from "@/components/ui/Alert";
+import { AuthScreen } from "@/components/ui/AuthScreen";
+import { Button } from "@/components/ui/Button";
+import { Field } from "@/components/ui/Field";
+
 import { acceptInvite } from "./actions";
 
 export const runtime = "nodejs";
@@ -31,13 +36,12 @@ interface PageProps {
 
 function InvalidLink(): JSX.Element {
   return (
-    <main>
-      <h1>This link is no longer valid</h1>
+    <AuthScreen title="This link is no longer valid">
       <p>
         The invitation may have expired or already been used. Please contact your Burger Consulting
         point of contact for a new one.
       </p>
-    </main>
+    </AuthScreen>
   );
 }
 
@@ -77,40 +81,39 @@ export default async function InvitePage({ params, searchParams }: PageProps): P
   if (!invite) return <InvalidLink />;
 
   return (
-    <main>
-      <h1>Set up your subcontractor account</h1>
-      {status && STATUS_MESSAGE[status] ? (
-        <p role="alert" style={{ color: "#b00" }}>
-          {STATUS_MESSAGE[status]}
-        </p>
-      ) : null}
-      <p>
-        You&apos;ve been invited to access the subcontractor portal for{" "}
-        <strong>{invite.companyName}</strong>. Choose a password to finish setting up your account.
-      </p>
-
+    <AuthScreen
+      title="Set up your subcontractor account"
+      subtitle={
+        <>
+          You&apos;ve been invited to access the subcontractor portal for{" "}
+          <strong>{invite.companyName}</strong>. Choose a password to finish setting up your account.
+        </>
+      }
+    >
+      {status && STATUS_MESSAGE[status] ? <Alert>{STATUS_MESSAGE[status]}</Alert> : null}
       <form action={acceptInvite}>
         <input type="hidden" name="token" value={token} />
-        <p>
-          <label>
-            Email{" "}
-            <input type="email" value={invite.invitedEmail} readOnly aria-readonly="true" />
-          </label>
-        </p>
-        <p>
-          <label>
-            Password (at least 12 characters){" "}
-            <input type="password" name="password" required minLength={12} maxLength={200} />
-          </label>
-        </p>
-        <p>
-          <label>
-            Confirm password{" "}
-            <input type="password" name="confirmPassword" required minLength={12} maxLength={200} />
-          </label>
-        </p>
-        <button type="submit">Create account</button>
+        <Field type="email" label="Email" value={invite.invitedEmail} readOnly aria-readonly="true" />
+        <Field
+          type="password"
+          label="Password (at least 12 characters)"
+          name="password"
+          required
+          minLength={12}
+          maxLength={200}
+        />
+        <Field
+          type="password"
+          label="Confirm password"
+          name="confirmPassword"
+          required
+          minLength={12}
+          maxLength={200}
+        />
+        <Button type="submit" block>
+          Create account
+        </Button>
       </form>
-    </main>
+    </AuthScreen>
   );
 }

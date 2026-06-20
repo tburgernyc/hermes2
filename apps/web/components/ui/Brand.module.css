@@ -1,0 +1,16 @@
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  color: var(--studio-ink);
+}
+.mark {
+  color: var(--studio-primary);
+  display: inline-flex;
+}
+.word {
+  font-family: var(--font-sans);
+}

@@ -1,5 +1,10 @@
 import type { JSX } from "react";
 
+import { Alert } from "@/components/ui/Alert";
+import { AuthScreen } from "@/components/ui/AuthScreen";
+import { Button } from "@/components/ui/Button";
+import { Field } from "@/components/ui/Field";
+
 import { loginAction } from "./actions";
 
 export default async function LoginPage({
@@ -9,20 +14,21 @@ export default async function LoginPage({
 }): Promise<JSX.Element> {
   const { error } = await searchParams;
   return (
-    <main>
-      <h1>Sign in</h1>
-      {error ? <p role="alert">Invalid email or password.</p> : null}
+    <AuthScreen title="Sign in" subtitle="Access the BurgerGov console or subcontractor portal.">
+      {error ? <Alert>Invalid email or password.</Alert> : null}
       <form action={loginAction}>
-        <label>
-          Email
-          <input type="email" name="email" autoComplete="username" required />
-        </label>
-        <label>
-          Password
-          <input type="password" name="password" autoComplete="current-password" required />
-        </label>
-        <button type="submit">Sign in</button>
+        <Field label="Email" name="email" type="email" autoComplete="username" required />
+        <Field
+          label="Password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          required
+        />
+        <Button type="submit" block>
+          Sign in
+        </Button>
       </form>
-    </main>
+    </AuthScreen>
   );
 }

@@ -1,8 +1,10 @@
-import type { JSX } from "react";
 import Link from "next/link";
+import type { JSX } from "react";
 
 import { and, desc, eq, inArray, solicitations, withVendorRole } from "@hermes/db";
 
+import { PageHeader } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
 import { requireVendorWithVendorId } from "@/lib/auth-guard";
 import { OPEN_RFQ_STATUSES } from "@/lib/portal";
 
@@ -35,35 +37,41 @@ export default async function OpenRfqsPage(): Promise<JSX.Element> {
 
   return (
     <main>
-      <h1>Open RFQs</h1>
-      <p>Solicitations the firm is currently sourcing subcontractor quotes for.</p>
+      <PageHeader
+        title="Open RFQs"
+        lede="Solicitations the firm is currently sourcing subcontractor quotes for."
+      />
       {rows.length === 0 ? (
-        <p data-testid="rfqs-empty">No open RFQs right now.</p>
+        <p className={c.empty} data-testid="rfqs-empty">
+          No open RFQs right now.
+        </p>
       ) : (
-        <table data-testid="rfqs-table">
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Agency</th>
-              <th>NAICS</th>
-              <th>Response deadline</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((s) => (
-              <tr key={s.id}>
-                <td>{s.title}</td>
-                <td>{s.agency ?? "—"}</td>
-                <td>{s.naicsCode ?? "—"}</td>
-                <td>{s.responseDeadline ? s.responseDeadline.toISOString().slice(0, 10) : "—"}</td>
-                <td>
-                  <Link href={`/portal/solicitations/${s.id}/quote`}>Submit quote</Link>
-                </td>
+        <div className={c.tableWrap}>
+          <table className={c.table} data-testid="rfqs-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Agency</th>
+                <th>NAICS</th>
+                <th>Response deadline</th>
+                <th>Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.title}</td>
+                  <td>{s.agency ?? "—"}</td>
+                  <td>{s.naicsCode ?? "—"}</td>
+                  <td>{s.responseDeadline ? s.responseDeadline.toISOString().slice(0, 10) : "—"}</td>
+                  <td>
+                    <Link href={`/portal/solicitations/${s.id}/quote`}>Submit quote</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </main>
   );

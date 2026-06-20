@@ -12,6 +12,8 @@ import {
   withVendorRole,
 } from "@hermes/db";
 
+import { Badge, Card, PageHeader, Section } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
 import { requireVendorWithVendorId } from "@/lib/auth-guard";
 import { formatUsd, humanizeStatus } from "@/lib/portal";
 
@@ -81,54 +83,77 @@ export default async function MyQuoteDetail({
 
   return (
     <main>
-      <p>
-        <Link href="/portal/quotes">← My Quotes</Link>
-      </p>
-      <h1>{quote.solicitationTitle}</h1>
-      <p>Notice {quote.noticeId}</p>
-      <dl>
-        <dt>Status</dt>
-        <dd data-testid="quote-status">{humanizeStatus(quote.status)}</dd>
-        <dt>Total price</dt>
-        <dd>{formatUsd(quote.totalPrice)}</dd>
-        <dt>Period of performance</dt>
-        <dd>{quote.periodOfPerformance ?? "—"}</dd>
-        <dt>Pay-when-paid</dt>
-        <dd>{quote.payWhenPaid ? "Yes" : "No"}</dd>
-      </dl>
+      <PageHeader
+        title={quote.solicitationTitle}
+        back={
+          <Link href="/portal/quotes" className={c.crumb}>
+            ← My Quotes
+          </Link>
+        }
+        lede={`Notice ${quote.noticeId}`}
+      />
+
+      <Card>
+        <ul className={c.list}>
+          <li className={c.rowBetween}>
+            <span className={c.meta}>Status</span>
+            <span data-testid="quote-status">
+              <Badge>{humanizeStatus(quote.status)}</Badge>
+            </span>
+          </li>
+          <li className={c.rowBetween}>
+            <span className={c.meta}>Total price</span>
+            <span>{formatUsd(quote.totalPrice)}</span>
+          </li>
+          <li className={c.rowBetween}>
+            <span className={c.meta}>Period of performance</span>
+            <span>{quote.periodOfPerformance ?? "—"}</span>
+          </li>
+          <li className={c.rowBetween}>
+            <span className={c.meta}>Pay-when-paid</span>
+            <span>{quote.payWhenPaid ? "Yes" : "No"}</span>
+          </li>
+        </ul>
+      </Card>
+
       {quote.notes ? (
-        <section>
-          <h2>Notes</h2>
-          <p data-testid="quote-notes">{quote.notes}</p>
-        </section>
+        <Section title="Notes">
+          <p className={c.scope} data-testid="quote-notes">
+            {quote.notes}
+          </p>
+        </Section>
       ) : null}
-      <h2>Line items</h2>
-      {lines.length === 0 ? (
-        <p>No line items.</p>
-      ) : (
-        <table data-testid="quote-lines">
-          <thead>
-            <tr>
-              <th>Cost type</th>
-              <th>Description</th>
-              <th>Qty</th>
-              <th>Unit rate</th>
-              <th>Extended</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((l) => (
-              <tr key={l.id}>
-                <td>{humanizeStatus(l.costType)}</td>
-                <td>{l.description}</td>
-                <td>{Number(l.quantity)}</td>
-                <td>{formatUsd(l.unitRate)}</td>
-                <td>{formatUsd(l.extendedAmount)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+
+      <Section title="Line items">
+        {lines.length === 0 ? (
+          <p className={c.empty}>No line items.</p>
+        ) : (
+          <div className={c.tableWrap}>
+            <table className={c.table} data-testid="quote-lines">
+              <thead>
+                <tr>
+                  <th>Cost type</th>
+                  <th>Description</th>
+                  <th>Qty</th>
+                  <th>Unit rate</th>
+                  <th>Extended</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((l) => (
+                  <tr key={l.id}>
+                    <td>{humanizeStatus(l.costType)}</td>
+                    <td>{l.description}</td>
+                    <td>{Number(l.quantity)}</td>
+                    <td>{formatUsd(l.unitRate)}</td>
+                    <td>{formatUsd(l.extendedAmount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
     </main>
   );
 }

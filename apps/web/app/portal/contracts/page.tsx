@@ -2,6 +2,8 @@ import type { JSX } from "react";
 
 import { and, contracts, desc, eq, solicitations, withVendorRole } from "@hermes/db";
 
+import { Badge, PageHeader } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
 import { requireVendorWithVendorId } from "@/lib/auth-guard";
 import { formatUsd, humanizeStatus } from "@/lib/portal";
 
@@ -40,32 +42,40 @@ export default async function MySubcontractsPage(): Promise<JSX.Element> {
 
   return (
     <main>
-      <h1>My Subcontracts</h1>
+      <PageHeader title="My Subcontracts" />
       {rows.length === 0 ? (
-        <p data-testid="contracts-empty">You have no subcontracts yet.</p>
+        <p className={c.empty} data-testid="contracts-empty">
+          You have no subcontracts yet.
+        </p>
       ) : (
-        <table data-testid="contracts-table">
-          <thead>
-            <tr>
-              <th>Solicitation</th>
-              <th>Type</th>
-              <th>Value</th>
-              <th>Status</th>
-              <th>E-sign</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((c) => (
-              <tr key={c.id}>
-                <td>{c.solicitationTitle ?? "—"}</td>
-                <td>{c.contractType}</td>
-                <td>{formatUsd(c.totalValue)}</td>
-                <td>{humanizeStatus(c.status)}</td>
-                <td>{humanizeStatus(c.esignStatus)}</td>
+        <div className={c.tableWrap}>
+          <table className={c.table} data-testid="contracts-table">
+            <thead>
+              <tr>
+                <th>Solicitation</th>
+                <th>Type</th>
+                <th>Value</th>
+                <th>Status</th>
+                <th>E-sign</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.solicitationTitle ?? "—"}</td>
+                  <td>{row.contractType}</td>
+                  <td>{formatUsd(row.totalValue)}</td>
+                  <td>
+                    <Badge>{humanizeStatus(row.status)}</Badge>
+                  </td>
+                  <td>
+                    <Badge tone="neutral">{humanizeStatus(row.esignStatus)}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </main>
   );

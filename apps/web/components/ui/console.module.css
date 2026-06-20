@@ -341,3 +341,91 @@
     var(--glass-shadow),
     0 0 0 1px rgba(16, 22, 29, 0.03);
 }
+
+/* ---- App shell (portal layout) ---- */
+.appShell {
+  min-height: 100vh;
+  color: var(--studio-ink);
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(1100px 560px at 84% -10%, rgba(120, 140, 255, 0.05), transparent 60%),
+    var(--studio-bg);
+}
+.appContent {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-4) var(--space-24);
+}
+
+/* ---- Public token-page shell ---- */
+.publicShell {
+  min-height: 100vh;
+  color: var(--studio-ink);
+  font-family: var(--font-sans);
+  padding: var(--space-12) var(--space-4);
+  background:
+    radial-gradient(1000px 520px at 82% -10%, rgba(120, 140, 255, 0.07), transparent 60%),
+    var(--studio-bg);
+}
+.publicInner {
+  max-width: 46rem;
+  margin: 0 auto;
+}
+.publicInnerNarrow {
+  max-width: 30rem;
+  margin: 0 auto;
+}
+.publicBrand {
+  margin-bottom: var(--space-6);
+}
+
+/* ---- Quote form ---- */
+.formStack {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 44rem;
+}
+.fieldset {
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  margin: 0;
+}
+.fieldset legend {
+  font-weight: 600;
+  padding: 0 var(--space-2);
+}
+.lineRow {
+  display: grid;
+  grid-template-columns: 1fr 2fr 0.7fr 1fr;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+@media (max-width: 640px) {
+  .lineRow {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.control {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  color: var(--studio-ink);
+  background: var(--glass-bg);
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius);
+}
+.control:focus-visible {
+  border-color: var(--studio-primary);
+}
+.formLabel {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: var(--space-2);
+}
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}

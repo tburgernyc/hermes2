@@ -9,6 +9,10 @@ import type { JSX } from "react";
 
 import { and, eq, solicitations, withVendorRole } from "@hermes/db";
 
+import { Card, PageHeader } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
+import { Alert } from "@/components/ui/Alert";
+import { Button } from "@/components/ui/Button";
 import { requireVendorWithVendorId } from "@/lib/auth-guard";
 import { OPEN_RFQ_STATUSES, type SolicitationStatus } from "@/lib/portal";
 
@@ -34,10 +38,7 @@ interface PageProps {
   searchParams: Promise<{ status?: string }>;
 }
 
-export default async function VendorQuotePage({
-  params,
-  searchParams,
-}: PageProps): Promise<JSX.Element> {
+export default async function VendorQuotePage({ params, searchParams }: PageProps): Promise<JSX.Element> {
   const { id } = await params;
   const { status } = await searchParams;
   const { session, vendorId } = await requireVendorWithVendorId();
@@ -62,10 +63,12 @@ export default async function VendorQuotePage({
   if (status === "submitted") {
     return (
       <main>
-        <h1>Quote received — thank you</h1>
-        <p data-testid="submit-success">
-          Your quote has been submitted for review. No further action is needed.
-        </p>
+        <PageHeader title="Quote received — thank you" />
+        <Card>
+          <p data-testid="submit-success">
+            Your quote has been submitted for review. No further action is needed.
+          </p>
+        </Card>
       </main>
     );
   }
@@ -74,47 +77,57 @@ export default async function VendorQuotePage({
 
   return (
     <main>
-      <h1>Submit a quote</h1>
+      <PageHeader title="Submit a quote" />
       {status && STATUS_MESSAGE[status] ? (
-        <p role="alert" data-testid="submit-status" style={{ color: "#b00" }}>
-          {STATUS_MESSAGE[status]}
-        </p>
+        <Alert testId="submit-status">{STATUS_MESSAGE[status]}</Alert>
       ) : null}
 
       {sol ? (
-        <section>
-          <h2>{sol.title}</h2>
-          <p>
+        <Card>
+          <h2 className={c.sectionTitle}>{sol.title}</h2>
+          <p className={c.meta}>
             {sol.agency ? `${sol.agency} · ` : ""}
             {sol.contractType ? `Contract type: ${sol.contractType}` : ""}
             {sol.responseDeadline
               ? ` · Response due ${sol.responseDeadline.toISOString().slice(0, 10)}`
               : ""}
           </p>
-          {sol.scopeText ? <p style={{ whiteSpace: "pre-wrap" }}>{sol.scopeText}</p> : null}
-        </section>
+          {sol.scopeText ? <p className={c.scope}>{sol.scopeText}</p> : null}
+        </Card>
       ) : (
-        <p>This solicitation could not be found.</p>
+        <p className={c.empty}>This solicitation could not be found.</p>
       )}
 
       {!isOpen ? (
-        <p data-testid="rfq-closed">This RFQ is not currently accepting quotes.</p>
+        <p className={c.empty} data-testid="rfq-closed">
+          This RFQ is not currently accepting quotes.
+        </p>
       ) : (
-        <form action={submitQuote} data-testid="quote-form">
+        <form action={submitQuote} data-testid="quote-form" className={c.formStack}>
           <input type="hidden" name="solicitationId" value={id} />
 
-          <fieldset>
+          <fieldset className={c.fieldset}>
             <legend>Line items</legend>
             {LINE_ITEM_ROWS.map((i) => (
-              <div key={i} style={{ marginBottom: "0.5rem" }}>
-                <select name={`costType_${i}`} aria-label={`Cost type ${i + 1}`} defaultValue="LABOR">
+              <div key={i} className={c.lineRow}>
+                <select
+                  name={`costType_${i}`}
+                  aria-label={`Cost type ${i + 1}`}
+                  defaultValue="LABOR"
+                  className={c.control}
+                >
                   {COST_TYPES.map((ct) => (
                     <option key={ct} value={ct}>
                       {ct}
                     </option>
                   ))}
-                </select>{" "}
-                <input name={`description_${i}`} placeholder="Description" maxLength={500} />{" "}
+                </select>
+                <input
+                  name={`description_${i}`}
+                  placeholder="Description"
+                  maxLength={500}
+                  className={c.control}
+                />
                 <input
                   name={`quantity_${i}`}
                   type="number"
@@ -122,48 +135,52 @@ export default async function VendorQuotePage({
                   min="0"
                   placeholder="Qty"
                   defaultValue="1"
-                />{" "}
+                  className={c.control}
+                />
                 <input
                   name={`unitRate_${i}`}
                   type="number"
                   step="0.01"
                   min="0"
                   placeholder="Unit rate (USD)"
+                  className={c.control}
                 />
               </div>
             ))}
-            <p style={{ fontSize: "0.85rem", color: "#555" }}>
-              Enter at least one line item. Leave unused rows blank.
-            </p>
+            <p className={c.meta}>Enter at least one line item. Leave unused rows blank.</p>
           </fieldset>
 
-          <p>
-            <label>
-              Period of performance:{" "}
-              <input name="periodOfPerformance" maxLength={200} placeholder="e.g. 12 months" />
-            </label>
-          </p>
-          <p>
-            <label>
-              <input type="checkbox" name="payWhenPaid" defaultChecked /> Pay-when-paid terms
-              acceptable
-            </label>
-          </p>
-          <p>
-            <label>
-              Notes:
-              <br />
-              <textarea name="notes" rows={4} maxLength={5000} />
-            </label>
-          </p>
-          <p>
-            <label>
-              Quote document (PDF or DOCX, max 25 MB):{" "}
-              <input type="file" name="file" accept=".pdf,.docx,application/pdf" required />
-            </label>
-          </p>
+          <label>
+            <span className={c.formLabel}>Period of performance</span>
+            <input
+              name="periodOfPerformance"
+              maxLength={200}
+              placeholder="e.g. 12 months"
+              className={c.control}
+            />
+          </label>
 
-          <button type="submit">Submit quote</button>
+          <label className={c.checkRow}>
+            <input type="checkbox" name="payWhenPaid" defaultChecked /> Pay-when-paid terms acceptable
+          </label>
+
+          <label>
+            <span className={c.formLabel}>Notes</span>
+            <textarea name="notes" rows={4} maxLength={5000} className={c.control} />
+          </label>
+
+          <label>
+            <span className={c.formLabel}>Quote document (PDF or DOCX, max 25 MB)</span>
+            <input
+              type="file"
+              name="file"
+              accept=".pdf,.docx,application/pdf"
+              required
+              className={c.control}
+            />
+          </label>
+
+          <Button type="submit">Submit quote</Button>
         </form>
       )}
     </main>

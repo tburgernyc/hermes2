@@ -163,3 +163,27 @@ export function Select({ label, children, className, ...rest }: SelectProps): JS
     </label>
   );
 }
+
+/**
+ * Studio shell for the PUBLIC token pages (/quote, /optout) — they sit outside the portal nav, so this
+ * gives them the studio background + the brand mark and a centered content column. Renders the <main>
+ * landmark (the page passes its own <h1> + content as children). `narrow` for a small confirmation page.
+ */
+export function PublicShell({
+  children,
+  width = "wide",
+}: {
+  children: ReactNode;
+  width?: "narrow" | "wide";
+}): JSX.Element {
+  return (
+    <main className={styles.publicShell}>
+      <div className={width === "narrow" ? styles.publicInnerNarrow : styles.publicInner}>
+        <div className={styles.publicBrand}>
+          <Brand />
+        </div>
+        {children}
+      </div>
+    </main>
+  );
+}

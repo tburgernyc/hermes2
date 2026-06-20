@@ -3,6 +3,8 @@ import type { JSX } from "react";
 
 import { and, desc, eq, solicitations, vendorQuotes, withVendorRole } from "@hermes/db";
 
+import { Badge, PageHeader } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
 import { requireVendorWithVendorId } from "@/lib/auth-guard";
 import { formatUsd, humanizeStatus } from "@/lib/portal";
 
@@ -40,30 +42,36 @@ export default async function MyQuotesPage(): Promise<JSX.Element> {
 
   return (
     <main>
-      <h1>My Quotes</h1>
+      <PageHeader title="My Quotes" />
       {rows.length === 0 ? (
-        <p data-testid="quotes-empty">You have not submitted any quotes yet.</p>
+        <p className={c.empty} data-testid="quotes-empty">
+          You have not submitted any quotes yet.
+        </p>
       ) : (
-        <table data-testid="quotes-table">
-          <thead>
-            <tr>
-              <th>Solicitation</th>
-              <th>Status</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((q) => (
-              <tr key={q.id}>
-                <td>
-                  <Link href={`/portal/quotes/${q.id}`}>{q.solicitationTitle}</Link>
-                </td>
-                <td>{humanizeStatus(q.status)}</td>
-                <td>{formatUsd(q.totalPrice)}</td>
+        <div className={c.tableWrap}>
+          <table className={c.table} data-testid="quotes-table">
+            <thead>
+              <tr>
+                <th>Solicitation</th>
+                <th>Status</th>
+                <th>Total</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((q) => (
+                <tr key={q.id}>
+                  <td>
+                    <Link href={`/portal/quotes/${q.id}`}>{q.solicitationTitle}</Link>
+                  </td>
+                  <td>
+                    <Badge>{humanizeStatus(q.status)}</Badge>
+                  </td>
+                  <td>{formatUsd(q.totalPrice)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </main>
   );

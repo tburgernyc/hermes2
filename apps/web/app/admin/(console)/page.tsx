@@ -21,6 +21,8 @@ import {
   withOrg,
 } from "@hermes/db";
 
+import { Card, PageHeader, Section, Stat } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
 import { requireAdmin } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
@@ -104,68 +106,102 @@ export default async function AdminHome(): Promise<JSX.Element> {
 
   return (
     <main>
-      <h1>Admin Console</h1>
-      <p>
-        Morning brief for {session.user.email}. Nothing here is sent or advanced without your explicit
-        approval.
-      </p>
+      <PageHeader
+        title="Admin Console"
+        lede={`Morning brief for ${session.user.email}. Nothing here is sent or advanced without your explicit approval.`}
+      />
 
-      <section>
-        <h2>Solicitations awaiting a sourcing decision ({brief.triaged.length})</h2>
+      <div className={c.statGrid}>
+        <Stat label="Awaiting sourcing decision" value={brief.triaged.length} />
+        <Stat
+          label="Outreach awaiting approval"
+          value={brief.pendingOutreach}
+          tone={brief.pendingOutreach > 0 ? "warn" : "neutral"}
+        />
+        <Stat label="In pricing / bid review" value={brief.pricing.length} />
+        <Stat
+          label="Deadlines within 72h"
+          value={brief.deadlines.length}
+          tone={brief.deadlines.length > 0 ? "warn" : "neutral"}
+        />
+        <Stat
+          label="Overdue AR follow-ups"
+          value={brief.arOverdue}
+          tone={brief.arOverdue > 0 ? "warn" : "neutral"}
+        />
+      </div>
+
+      <Section
+        title="Solicitations awaiting a sourcing decision"
+        count={brief.triaged.length}
+        actions={
+          <Link href="/admin/solicitations" className={c.crumb}>
+            Open board →
+          </Link>
+        }
+      >
         {brief.triaged.length === 0 ? (
-          <p>None.</p>
+          <p className={c.empty}>None.</p>
         ) : (
-          <ul>
+          <ul className={c.list}>
             {brief.triaged.map((s) => (
-              <li key={s.id}>
-                <Link href={`/admin/solicitations/${s.id}`}>{s.title}</Link> (feasibility{" "}
-                {s.feasibilityScore ?? "?"})
-              </li>
+              <Card as="li" key={s.id} size="sm">
+                <div className={c.rowBetween}>
+                  <Link href={`/admin/solicitations/${s.id}`}>{s.title}</Link>
+                  <span className={c.meta}>feasibility {s.feasibilityScore ?? "?"}</span>
+                </div>
+              </Card>
             ))}
           </ul>
         )}
-        <Link href="/admin/solicitations">Open solicitations board →</Link>
-      </section>
+      </Section>
 
-      <section>
-        <h2>Outreach awaiting approval ({brief.pendingOutreach})</h2>
-        <Link href="/admin/approvals">Review approvals →</Link>
-      </section>
+      <Section
+        title="Outreach awaiting approval"
+        count={brief.pendingOutreach}
+        actions={
+          <Link href="/admin/approvals" className={c.crumb}>
+            Review approvals →
+          </Link>
+        }
+      >
+        <p className={c.empty}>
+          {brief.pendingOutreach === 0
+            ? "Nothing pending."
+            : `${brief.pendingOutreach} campaign(s) waiting on your decision.`}
+        </p>
+      </Section>
 
-      <section>
-        <h2>Solicitations in pricing / bid review ({brief.pricing.length})</h2>
+      <Section title="Solicitations in pricing / bid review" count={brief.pricing.length}>
         {brief.pricing.length === 0 ? (
-          <p>None.</p>
+          <p className={c.empty}>None.</p>
         ) : (
-          <ul>
+          <ul className={c.list}>
             {brief.pricing.map((s) => (
-              <li key={s.id}>
+              <Card as="li" key={s.id} size="sm">
                 <Link href={`/admin/solicitations/${s.id}`}>{s.title}</Link>
-              </li>
+              </Card>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
-      <section>
-        <h2>Response deadlines within 72h ({brief.deadlines.length})</h2>
+      <Section title="Response deadlines within 72h" count={brief.deadlines.length}>
         {brief.deadlines.length === 0 ? (
-          <p>None.</p>
+          <p className={c.empty}>None.</p>
         ) : (
-          <ul>
+          <ul className={c.list}>
             {brief.deadlines.map((s) => (
-              <li key={s.id}>
-                <Link href={`/admin/solicitations/${s.id}`}>{s.title}</Link>
-                {s.deadline ? ` — due ${s.deadline.toISOString()}` : ""}
-              </li>
+              <Card as="li" key={s.id} size="sm">
+                <div className={c.rowBetween}>
+                  <Link href={`/admin/solicitations/${s.id}`}>{s.title}</Link>
+                  {s.deadline ? <span className={c.meta}>due {s.deadline.toISOString()}</span> : null}
+                </div>
+              </Card>
             ))}
           </ul>
         )}
-      </section>
-
-      <section>
-        <h2>Overdue AR follow-ups ({brief.arOverdue})</h2>
-      </section>
+      </Section>
     </main>
   );
 }

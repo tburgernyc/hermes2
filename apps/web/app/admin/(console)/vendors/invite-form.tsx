@@ -8,6 +8,12 @@
 import type { JSX } from "react";
 import { useActionState } from "react";
 
+import { Select } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
+import { Alert } from "@/components/ui/Alert";
+import { Button } from "@/components/ui/Button";
+import { Field } from "@/components/ui/Field";
+
 import { inviteVendorUser } from "./actions";
 
 interface VendorOption {
@@ -20,37 +26,34 @@ export function InviteForm({ vendors }: { vendors: VendorOption[] }): JSX.Elemen
 
   return (
     <form action={action}>
-      <label>
-        Vendor{" "}
-        <select name="vendorId" required defaultValue="">
-          <option value="" disabled>
-            Select a vetted vendor
+      <Select label="Vendor" name="vendorId" required defaultValue="">
+        <option value="" disabled>
+          Select a vetted vendor
+        </option>
+        {vendors.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.companyName}
           </option>
-          {vendors.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.companyName}
-            </option>
-          ))}
-        </select>
-      </label>{" "}
-      <label>
-        Email{" "}
-        <input name="email" type="email" required maxLength={254} placeholder="contact@vendor.example" />
-      </label>{" "}
-      <button type="submit" disabled={pending}>
+        ))}
+      </Select>
+      <Field
+        label="Email"
+        name="email"
+        type="email"
+        required
+        maxLength={254}
+        placeholder="contact@vendor.example"
+      />
+      <Button type="submit" disabled={pending}>
         Create invite link
-      </button>
+      </Button>
 
-      {state.error ? (
-        <p role="alert" style={{ color: "#b00" }}>
-          {state.error}
-        </p>
-      ) : null}
+      {state.error ? <Alert>{state.error}</Alert> : null}
       {state.ok && state.link ? (
         <p data-testid="invite-link">
           Single-use invite link for {state.email} (copy + send it to the vendor):
           <br />
-          <code style={{ wordBreak: "break-all" }}>{state.link}</code>
+          <code className={c.code}>{state.link}</code>
         </p>
       ) : null}
     </form>

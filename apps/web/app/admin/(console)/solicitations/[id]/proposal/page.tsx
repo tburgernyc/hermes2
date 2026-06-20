@@ -12,8 +12,11 @@ import type { JSX } from "react";
 
 import { and, desc, eq, proposals, solicitations, withOrg } from "@hermes/db";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { Badge, Card, PageHeader, Section } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
+import { Button } from "@/components/ui/Button";
 import { humanizeStatus } from "@/lib/admin-board";
+import { requireAdmin } from "@/lib/auth-guard";
 
 import { counselReviewProposal, markProposalReady, submitProposal } from "./actions";
 
@@ -50,16 +53,21 @@ interface ComplianceJson {
 const pct = (v: number | null | undefined): string =>
   typeof v === "number" && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "—";
 const usd = (v: number | null | undefined): string =>
-  typeof v === "number" && Number.isFinite(v) ? `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : "—";
+  typeof v === "number" && Number.isFinite(v)
+    ? `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+    : "—";
 
 function Checklist({ items }: { items: ChecklistItem[] }): JSX.Element {
-  if (items.length === 0) return <p>None.</p>;
+  if (items.length === 0) return <p className={c.empty}>None.</p>;
   return (
-    <ul>
-      {items.map((c, i) => (
-        <li key={i}>
-          <strong>{c.passed ? "PASS" : "REVIEW"}</strong> · {c.item}
-          {c.note ? ` — ${c.note}` : ""}
+    <ul className={c.list}>
+      {items.map((ci, i) => (
+        <li key={i} className={c.row}>
+          <Badge tone={ci.passed ? "success" : "warn"}>{ci.passed ? "PASS" : "REVIEW"}</Badge>
+          <span>
+            {ci.item}
+            {ci.note ? ` — ${ci.note}` : ""}
+          </span>
         </li>
       ))}
     </ul>
@@ -104,65 +112,74 @@ export default async function ProposalReview({
 
   return (
     <main>
-      <p>
-        <Link href={`/admin/solicitations/${sol.id}`}>← {sol.title}</Link>
-      </p>
-      <h1>Bid decision-brief</h1>
-      <p>
-        Proposal status: {humanizeStatus(proposal.status)} · contract type {proposal.contractType}
-        {compliance.provisional ? " · PROVISIONAL (dry-run baseline)" : ""}
-      </p>
-      {pricing.watermark && <p data-testid="watermark">{pricing.watermark}</p>}
+      <PageHeader
+        title="Bid decision-brief"
+        back={
+          <Link href={`/admin/solicitations/${sol.id}`} className={c.crumb}>
+            ← {sol.title}
+          </Link>
+        }
+        lede={
+          <>
+            Proposal status: {humanizeStatus(proposal.status)} · contract type {proposal.contractType}
+            {compliance.provisional ? " · PROVISIONAL (dry-run baseline)" : ""}
+          </>
+        }
+      />
+      {pricing.watermark && (
+        <p data-testid="watermark">
+          <Badge tone="warn">{pricing.watermark}</Badge>
+        </p>
+      )}
 
-      <section>
-        <h2>Pricing scenarios ({scenarios.length})</h2>
+      <Section title="Pricing scenarios" count={scenarios.length}>
         {scenarios.length === 0 ? (
-          <p>No scenarios.</p>
+          <p className={c.empty}>No scenarios.</p>
         ) : (
-          <table data-testid="pricing-scenarios">
-            <thead>
-              <tr>
-                <th>Scenario</th>
-                <th>Price</th>
-                <th>Fee %</th>
-                <th>Margin %</th>
-                <th>vs. benchmark median</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scenarios.map((s, i) => (
-                <tr key={i} data-testid={`scenario-${i}`}>
-                  <td>{s.label}</td>
-                  <td>{usd(s.price)}</td>
-                  <td>{pct(s.feePct)}</td>
-                  <td>{pct(s.marginPct)}</td>
-                  <td>{pct(s.vsBenchmarkMedianPct)}</td>
+          <div className={c.tableWrap}>
+            <table className={c.table} data-testid="pricing-scenarios">
+              <thead>
+                <tr>
+                  <th>Scenario</th>
+                  <th>Price</th>
+                  <th>Fee %</th>
+                  <th>Margin %</th>
+                  <th>vs. benchmark median</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {scenarios.map((s, i) => (
+                  <tr key={i} data-testid={`scenario-${i}`}>
+                    <td>{s.label}</td>
+                    <td>{usd(s.price)}</td>
+                    <td>{pct(s.feePct)}</td>
+                    <td>{pct(s.marginPct)}</td>
+                    <td>{pct(s.vsBenchmarkMedianPct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-        <p>
+        <p className={c.meta}>
           Scenarios are a decision aid — you choose the number; the system never picks one (CLAUDE.md §6).
         </p>
-      </section>
+      </Section>
 
-      <section>
-        <h2>Compliance checklist</h2>
+      <Section title="Compliance checklist">
         <Checklist items={compliance.compliance?.checklist ?? []} />
-      </section>
+      </Section>
 
-      <section>
-        <h2>Bid checklist (§3)</h2>
+      <Section title="Bid checklist (§3)">
         <Checklist items={compliance.bidChecklist?.checklist ?? []} />
-      </section>
+      </Section>
 
-      <section data-testid="live-blockers">
-        <h2>Live-submission blockers</h2>
+      <section data-testid="live-blockers" className={c.section}>
+        <h2 className={c.sectionTitle}>Live-submission blockers</h2>
         {liveReady ? (
           <p>No blockers — this bid is cleared for live submission.</p>
         ) : (
-          <>
+          <Card>
             <p>
               This bid <strong>cannot</strong> be submitted yet. The following must be resolved before any
               real bid leaves the building:
@@ -172,38 +189,37 @@ export default async function ProposalReview({
                 <li key={i}>{b}</li>
               ))}
             </ul>
-          </>
+          </Card>
         )}
       </section>
 
-      <section>
-        <h2>Review workflow</h2>
+      <Section title="Review workflow">
         {proposal.status === "DRAFT" && (
           <form action={counselReviewProposal}>
             <input type="hidden" name="proposalId" value={proposal.id} />
-            <button type="submit">Record counsel review</button>
+            <Button type="submit">Record counsel review</Button>
           </form>
         )}
         {proposal.status === "COUNSEL_REVIEW" && (
           <form action={markProposalReady}>
             <input type="hidden" name="proposalId" value={proposal.id} />
-            <button type="submit">Mark ready to submit</button>
+            <Button type="submit">Mark ready to submit</Button>
           </form>
         )}
         {proposal.status === "READY_TO_SUBMIT" && (
           <form action={submitProposal}>
             <input type="hidden" name="proposalId" value={proposal.id} />
-            <button type="submit">Submit to agency</button>
-            <p>
+            <Button type="submit">Submit to agency</Button>
+            <p className={c.meta}>
               Submitting is blocked unless every live-submission gate passes (it does not on the provisional
               baseline). No bid is transmitted automatically.
             </p>
           </form>
         )}
         {proposal.status === "SUBMITTED" && <p>Submitted by a human.</p>}
-      </section>
+      </Section>
 
-      {compliance.disclaimer && <p style={{ fontStyle: "italic" }}>{compliance.disclaimer}</p>}
+      {compliance.disclaimer && <p className={c.rationale}>{compliance.disclaimer}</p>}
     </main>
   );
 }

@@ -7,6 +7,9 @@ import type { JSX } from "react";
 
 import { contactInquiries, desc, eq, withOrg } from "@hermes/db";
 
+import { Badge, Card, PageHeader } from "@/components/ui/console";
+import c from "@/components/ui/console.module.css";
+import { Button } from "@/components/ui/Button";
 import { requireAdmin } from "@/lib/auth-guard";
 
 import { markInquiryReviewed } from "./actions";
@@ -39,28 +42,35 @@ export default async function InquiriesPage(): Promise<JSX.Element> {
 
   return (
     <main>
-      <h1>Contact inquiries</h1>
-      <p>
-        {inquiries.length} total · {newCount} new
-      </p>
+      <PageHeader title="Contact inquiries" lede={`${inquiries.length} total · ${newCount} new`} />
 
       {inquiries.length === 0 ? (
-        <p>No inquiries yet.</p>
+        <p className={c.empty}>No inquiries yet.</p>
       ) : (
-        <ul data-testid="inquiries-list">
+        <ul className={c.list} data-testid="inquiries-list">
           {inquiries.map((i) => (
-            <li key={i.id} data-testid={`inquiry-${i.id}`}>
-              <strong>{i.name}</strong> · {i.email}
-              {i.company ? ` · ${i.company}` : ""} · {i.intent} · {i.status} ·{" "}
-              {i.createdAt.toISOString().slice(0, 10)}
+            <Card as="li" key={i.id} testId={`inquiry-${i.id}`}>
+              <div className={c.rowBetween}>
+                <div>
+                  <strong>{i.name}</strong> · {i.email}
+                  {i.company ? ` · ${i.company}` : ""}
+                </div>
+                <div className={c.row}>
+                  <Badge tone="info">{i.intent}</Badge>
+                  <Badge tone={i.status === "NEW" ? "warn" : "neutral"}>{i.status}</Badge>
+                  <span className={c.meta}>{i.createdAt.toISOString().slice(0, 10)}</span>
+                </div>
+              </div>
               <blockquote>{i.message}</blockquote>
               {i.status === "NEW" && (
-                <form action={markInquiryReviewed} style={{ display: "inline" }}>
+                <form action={markInquiryReviewed}>
                   <input type="hidden" name="inquiryId" value={i.id} />
-                  <button type="submit">Mark reviewed</button>
+                  <Button type="submit" size="sm" variant="secondary">
+                    Mark reviewed
+                  </Button>
                 </form>
               )}
-            </li>
+            </Card>
           ))}
         </ul>
       )}

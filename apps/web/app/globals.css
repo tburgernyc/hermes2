@@ -37,8 +37,9 @@
   --shadow: 0 1px 2px rgba(16, 22, 29, 0.06), 0 8px 24px rgba(16, 22, 29, 0.06);
 
   /* ---- Marketing "studio" layer (Phase 8 visual polish) ----------------------------------------
-   * A premium light-mode studio palette + glassmorphism tokens used ONLY by the public marketing
-   * pages (scoped under .shell in marketing.module.css; admin/portal keep the --color-* set above).
+   * A premium light-mode studio palette + glassmorphism tokens used by the public marketing pages AND
+   * the shared app UI kit (apps/web/components/ui — auth/onboarding so far; admin/portal next). The
+   * legacy --color-* set above still serves the not-yet-migrated admin/portal pages.
    * Additive — nothing above changes. Every text/background pair below is chosen for WCAG 2.1 AA. */
   --studio-bg: #f7f8fb; /* luminous off-white — omnidirectional "studio" light */
   --studio-bg-tint: #eef2f8; /* alternating section wash */

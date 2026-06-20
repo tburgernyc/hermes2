@@ -1,0 +1,36 @@
+.screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-12) var(--space-4);
+  color: var(--studio-ink);
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(1000px 520px at 82% -10%, rgba(120, 140, 255, 0.07), transparent 60%),
+    radial-gradient(760px 420px at -8% 4%, rgba(96, 214, 230, 0.06), transparent 55%),
+    var(--studio-bg);
+}
+.card {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    var(--glass-shadow),
+    0 0 0 1px rgba(16, 22, 29, 0.03);
+  padding: var(--space-8);
+}
+.title {
+  font-size: 1.55rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  margin: var(--space-4) 0 var(--space-2);
+}
+.subtitle {
+  color: var(--studio-muted);
+  margin: 0 0 var(--space-6);
+  font-size: 0.98rem;
+}

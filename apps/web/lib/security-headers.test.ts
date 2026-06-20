@@ -18,8 +18,9 @@ describe("buildCsp", () => {
     expect(csp).not.toContain("'unsafe-eval'");
   });
 
-  it("allows unsafe-inline ONLY in style-src (inline style attrs on admin/portal pages)", () => {
-    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+  it("uses a strict, nonce'd style-src with NO unsafe-inline (PR D — app is fully CSS Modules)", () => {
+    expect(csp).toContain("style-src 'self' 'nonce-TESTNONCE'");
+    expect(csp).not.toContain("'unsafe-inline'");
   });
 
   it("locks down framing, objects, base, and forms", () => {

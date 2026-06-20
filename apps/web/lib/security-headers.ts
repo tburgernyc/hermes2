@@ -74,16 +74,17 @@ export function isHttpsRequest(forwardedProto: string | null, urlProtocol: strin
  * they load (strict-dynamic) may execute. 'self' is the CSP2 fallback for browsers that ignore
  * strict-dynamic. NO 'unsafe-inline' / 'unsafe-eval' — this is the high-value XSS control.
  *
- * style-src: MUST allow 'unsafe-inline' — admin/portal/token pages render inline `style={}` (React style
- * attributes) which CSP governs and which cannot carry a nonce. Style injection is far lower risk than
- * script injection and all untrusted text is JSX-autoescaped. (A nonce in style-src would DISABLE
- * 'unsafe-inline', so it is deliberately omitted.)
+ * style-src: strict (Phase 9 PR D) — 'self' for the external stylesheets + this per-request nonce for any
+ * framework-injected <style> element. NO 'unsafe-inline': the whole app is CSS Modules now (zero inline
+ * `style={}` attributes), and the only inline styles Next emits are on its DEFAULT error pages — which we
+ * override with custom not-found/global-error pages (CSS Modules). A nonce in style-src DISABLES
+ * 'unsafe-inline', so an injected inline style attribute is now blocked too (it can't carry a nonce).
  */
 export function buildCsp(nonce: string, isHttps: boolean): string {
   const directives = [
     `default-src 'self'`,
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    `style-src 'self' 'unsafe-inline'`,
+    `style-src 'self' 'nonce-${nonce}'`,
     `img-src 'self' data: ${TIGRIS_HOST}`,
     `font-src 'self'`,
     `connect-src 'self' ${TIGRIS_HOST} ${SENTRY_INGEST}`,

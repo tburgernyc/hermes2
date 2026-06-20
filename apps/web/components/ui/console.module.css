@@ -1,0 +1,343 @@
+/*
+ * Shared "console" styles for the admin + portal operations surfaces (Phase 9). Dense + scannable on the
+ * studio tokens. Used by console.tsx widgets and applied directly by pages for structural layout (kanban,
+ * tables, lists, stat grids). Every text/background pair is WCAG 2.1 AA.
+ */
+
+/* ---- App nav bar ---- */
+.navHeader {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--studio-line);
+}
+.navInner {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+}
+.brandLink {
+  text-decoration: none;
+}
+.nav {
+  display: flex;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.navLink {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--studio-muted);
+  text-decoration: none;
+}
+.navLink:hover {
+  color: var(--studio-primary);
+}
+
+/* ---- Page header ---- */
+.pageHeader {
+  margin-bottom: var(--space-8);
+}
+.pageBack {
+  margin-bottom: var(--space-3);
+  font-size: 0.85rem;
+}
+.pageRow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.pageTitle {
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.pageActions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.pageLede {
+  color: var(--studio-muted);
+  margin: var(--space-3) 0 0;
+  max-width: 72ch;
+}
+
+/* ---- Section ---- */
+.section {
+  margin-bottom: var(--space-12);
+}
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.sectionTitle {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.sectionCount {
+  color: var(--studio-muted);
+  font-weight: 400;
+}
+.sectionActions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* ---- Card / panel ---- */
+.card {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    var(--glass-shadow),
+    0 0 0 1px rgba(16, 22, 29, 0.03);
+  padding: var(--space-6);
+  list-style: none;
+}
+.cardSm {
+  padding: var(--space-4);
+}
+
+/* ---- Status badge ---- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid;
+  white-space: nowrap;
+}
+.toneNeutral {
+  background: var(--studio-bg-tint);
+  border-color: var(--studio-line);
+  color: var(--studio-muted);
+}
+.toneInfo {
+  background: #eaf1fb;
+  border-color: #b9d0f0;
+  color: #0b2e59;
+}
+.toneSuccess {
+  background: #e8f6ec;
+  border-color: #aedcbb;
+  color: #14532d;
+}
+.toneWarn {
+  background: var(--color-warn-surface);
+  border-color: #f0c98a;
+  color: var(--color-warn-ink);
+}
+.toneDanger {
+  background: #fdecec;
+  border-color: #f3b6b6;
+  color: #7a1a1a;
+}
+
+/* ---- Stat (daily brief) ---- */
+.stat {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-6);
+  box-shadow:
+    var(--glass-shadow),
+    0 0 0 1px rgba(16, 22, 29, 0.03);
+}
+.statValue {
+  font-size: 2rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.statLabel {
+  color: var(--studio-muted);
+  font-size: 0.85rem;
+  margin-top: var(--space-2);
+}
+.statWarn .statValue {
+  color: var(--color-warn-ink);
+}
+
+/* ---- Labeled select (mirrors the Field input) ---- */
+.field {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.fieldLabel {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--studio-ink);
+}
+.select {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  color: var(--studio-ink);
+  background: var(--glass-bg);
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius);
+}
+.select:focus-visible {
+  border-color: var(--studio-primary);
+}
+
+/* ---- Structural helpers (applied by pages) ---- */
+.statGrid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.rowBetween {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.meta {
+  color: var(--studio-muted);
+  font-size: 0.9rem;
+}
+.crumb {
+  color: var(--studio-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+.crumb:hover {
+  color: var(--studio-primary);
+}
+.toolbar {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.scope {
+  white-space: pre-wrap;
+  color: var(--studio-ink);
+  background: var(--studio-bg-tint);
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  max-width: 80ch;
+}
+.rationale {
+  color: var(--studio-muted);
+  font-style: italic;
+  margin-top: var(--space-2);
+}
+.empty {
+  color: var(--studio-muted);
+}
+.code {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  word-break: break-all;
+  background: var(--studio-bg-tint);
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius);
+  padding: 0.2rem 0.45rem;
+  color: var(--studio-ink);
+}
+
+/* ---- Kanban board ---- */
+.kanban {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: var(--space-4);
+}
+.column {
+  min-width: 260px;
+  flex: 1 0 260px;
+}
+.columnHead {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+}
+.columnCount {
+  color: var(--studio-muted);
+  font-weight: 400;
+}
+.columnCards {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* ---- Data table ---- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--studio-line);
+}
+.table th {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--studio-muted);
+  font-weight: 600;
+}
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+.tableWrap {
+  overflow-x: auto;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    var(--glass-shadow),
+    0 0 0 1px rgba(16, 22, 29, 0.03);
+}

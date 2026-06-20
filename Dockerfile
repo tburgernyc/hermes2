@@ -98,6 +98,20 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
+# @node-rs/argon2 is a NATIVE serverExternalPackage; Next's standalone trace DROPS it (the tracer can't
+# follow argon2's dynamic per-platform .node require — its loader lists 20+ variants), so /login and every
+# page that imports @/auth 500'd with "Cannot find module '@node-rs/argon2'". (pg, pure JS, traces fine and
+# is already present.) Restore the JS wrapper + the glibc binary (linux-x64-gnu = the bookworm runtime) as
+# REAL dirs in the standalone ROOT node_modules, where @hermes/core's dist resolves them by the normal Node
+# module walk-up (no pnpm symlink needed). Versions track pnpm-lock.yaml; an argon2 bump that changes them
+# fails this COPY in the docker-build CI job — a visible regression, never a silent prod break.
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/.pnpm/@node-rs+argon2@2.0.2/node_modules/@node-rs/argon2 ./node_modules/@node-rs/argon2
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/.pnpm/@node-rs+argon2-linux-x64-gnu@2.0.2/node_modules/@node-rs/argon2-linux-x64-gnu ./node_modules/@node-rs/argon2-linux-x64-gnu
+# Fail the build (caught by the docker-build CI job) if argon2 cannot load + exercise its native binary —
+# turns the prod runtime failure into a build-time check so a tracing/version regression never again ships
+# a broken login. Runs from /app (WORKDIR), the same root node_modules the standalone server resolves.
+RUN node -e "require('@node-rs/argon2').hashSync('build-time-check'); console.log('@node-rs/argon2 loads OK')"
+
 # Compiled, self-contained DB-migration bundle for the Fly release_command (fly.toml [deploy]).
 # Has its OWN node_modules — invoked as `node /app/migrator/dist/migrate.js`, never imported by
 # the web server. Adds only the migrator's prod closure to the image; the runtime app is unchanged.

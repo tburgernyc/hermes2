@@ -1,0 +1,25 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Studio Ground & Ink" subtitle="The neutral surface + text ramp" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; background: var(--studio-bg); font-family: var(--font-sans); padding: 20px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .sw { flex: 1 1 100px; border-radius: var(--radius-lg); padding: 12px; min-height: 78px; display: flex; flex-direction: column; justify-content: flex-end; border: 1px solid var(--studio-line); }
+  .name { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: var(--studio-ink); }
+  .hex { font-family: var(--font-mono); font-size: 0.7rem; color: var(--studio-muted); }
+  .dark .name, .dark .hex { color: #fff; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="sw" style="background:#f7f8fb"><span class="name">studio-bg</span><span class="hex">#F7F8FB</span></div>
+    <div class="sw" style="background:#eef2f8"><span class="name">bg-tint</span><span class="hex">#EEF2F8</span></div>
+    <div class="sw" style="background:#e2e8f0"><span class="name">line</span><span class="hex">#E2E8F0</span></div>
+    <div class="sw dark" style="background:#475569"><span class="name">muted</span><span class="hex">#475569</span></div>
+    <div class="sw dark" style="background:#0f1115"><span class="name">ink</span><span class="hex">#0F1115</span></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!-- @dsCard group="Operations Console" viewport="1280x780" name="Console — Admin & Vendor (Command)" subtitle="Split logins + TOTP, HITL approvals with release gate, vendor portal" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BurgerGov — Operations Console</title>
+<link rel="stylesheet" href="../../styles.css" />
+<link rel="stylesheet" href="console.css" />
+<style> body { margin: 0; background: #09090b; } </style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<script src="data.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="console-auth.jsx"></script>
+<script type="text/babel" src="console-views-admin.jsx"></script>
+<script type="text/babel" src="console-views-vendor.jsx"></script>
+<script type="text/babel">
+  const { useState, useEffect } = React;
+  const { Alert } = window.BurgerGovDesignSystem_d0c3b4;
+  const { AppNav, AuthScreen, TotpScreen, InviteOnboard, EnrollScreen } = window.ConsoleAuth;
+  const { AdminHome, SolicitationsBoard, SolicitationDetail, ProposalBrief, ApprovalsView, ApprovalDetail, InquiriesView, ProspectsView, VendorsView } = window.ConsoleAdmin;
+  const { VendorHome, RfqsView, QuoteSubmitView, MyQuotesView, QuoteView, ContractsView, DocumentsView } = window.ConsoleVendor;
+
+  const ADMIN_ROUTES = ["admin", "solicitations", "solicitation-detail", "proposal", "approvals", "approval-detail", "prospects", "vendors", "inquiries"];
+  const VENDOR_ROUTES = ["vendor", "rfqs", "quote-submit", "quotes", "quote", "contracts", "documents"];
+  const VALID = ["vendor-login", "admin-login", "admin-totp", "admin-enroll", "invite-onboard", ...ADMIN_ROUTES, ...VENDOR_ROUTES];
+
+  function App() {
+    const initial = (location.hash || "").replace("#", "");
+    const [route, setRoute] = useState(VALID.includes(initial) ? initial : "admin-login");
+    const [toast, setToast] = useState(null);
+    const [theme, setTheme] = useState("command");
+
+    useEffect(() => { const s = localStorage.getItem("bg-theme"); if (s) setTheme(s); }, []);
+    useEffect(() => {
+      document.documentElement.setAttribute("data-theme", theme === "command" ? "command" : "");
+      document.body.style.background = "var(--studio-bg)";
+      localStorage.setItem("bg-theme", theme);
+    }, [theme]);
+    useEffect(() => {
+      const onHash = () => { const h = location.hash.replace("#", ""); if (VALID.includes(h)) setRoute(h); };
+      window.addEventListener("hashchange", onHash);
+      return () => window.removeEventListener("hashchange", onHash);
+    }, []);
+
+    function go(r) { setToast(null); setRoute(r); if (VALID.includes(r)) history.replaceState(null, "", "#" + r); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    function act(msg) { setToast(msg); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    const toggleTheme = () => setTheme((t) => (t === "command" ? "studio" : "command"));
+
+    if (route === "vendor-login") return <AuthScreen kind="vendor" go={go} theme={theme} toggleTheme={toggleTheme} />;
+    if (route === "admin-login") return <AuthScreen kind="admin" go={go} theme={theme} toggleTheme={toggleTheme} />;
+    if (route === "admin-totp") return <TotpScreen go={go} theme={theme} toggleTheme={toggleTheme} />;
+    if (route === "admin-enroll") return <EnrollScreen go={go} theme={theme} toggleTheme={toggleTheme} />;
+    if (route === "invite-onboard") return <InviteOnboard go={go} theme={theme} toggleTheme={toggleTheme} />;
+
+    const surface = ADMIN_ROUTES.includes(route) ? "admin" : "vendor";
+    return (
+      <div className="appShell">
+        <div className="bgMesh" aria-hidden="true" />
+        <div className="bgGrid" aria-hidden="true" />
+        <AppNav surface={surface} route={route} go={go} theme={theme} toggleTheme={toggleTheme} />
+        <div className="appContent">
+          {toast ? <div style={{ marginBottom: "1.5rem" }}><Alert variant="success" role="status">{toast}</Alert></div> : null}
+          {route === "admin" && <AdminHome go={go} />}
+          {route === "solicitations" && <SolicitationsBoard go={go} onAct={act} />}
+          {route === "solicitation-detail" && <SolicitationDetail go={go} onAct={act} />}
+          {route === "proposal" && <ProposalBrief go={go} onAct={act} />}
+          {route === "approvals" && <ApprovalsView go={go} onAct={act} />}
+          {route === "approval-detail" && <ApprovalDetail go={go} onAct={act} />}
+          {route === "prospects" && <ProspectsView onAct={act} />}
+          {route === "vendors" && <VendorsView onAct={act} />}
+          {route === "inquiries" && <InquiriesView onAct={act} />}
+          {route === "vendor" && <VendorHome go={go} />}
+          {route === "rfqs" && <RfqsView go={go} />}
+          {route === "quote-submit" && <QuoteSubmitView go={go} onAct={act} />}
+          {route === "quotes" && <MyQuotesView go={go} />}
+          {route === "quote" && <QuoteView go={go} />}
+          {route === "contracts" && <ContractsView />}
+          {route === "documents" && <DocumentsView onAct={act} />}
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

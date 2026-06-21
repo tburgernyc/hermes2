@@ -1,0 +1,20 @@
+<!-- @dsCard group="Brand" viewport="700x260" name="Logo" subtitle="BurgerGov app mark on light & navy" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; font-family: var(--font-sans); background: var(--studio-bg); padding: 24px; display: flex; gap: 20px; }
+  .panel { flex: 1; border-radius: var(--radius-xl); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; border: 1px solid var(--studio-line); }
+  .panel.dark { background: #0b2e59; border-color: #0b2e59; }
+  .panel img { width: 120px; height: 120px; border-radius: 18px; box-shadow: 0 10px 30px -10px rgba(16,22,29,0.4); }
+  .cap { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--studio-muted); }
+  .dark .cap { color: rgba(255,255,255,0.7); }
+</style>
+</head>
+<body>
+  <div class="panel"><img src="../assets/burgergov-logo.png" alt="BurgerGov logo" /><div class="cap">On studio ground</div></div>
+  <div class="panel dark"><img src="../assets/burgergov-logo.png" alt="BurgerGov logo" /><div class="cap">On federal navy</div></div>
+</body>
+</html>

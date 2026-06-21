@@ -1,0 +1,36 @@
+<!-- @dsCard group="Components" viewport="700x200" name="Brand — Monogram & Wordmark" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../../styles.css" />
+<style>
+  body { margin: 0; background: var(--studio-bg); font-family: var(--font-sans); padding: 28px; color: var(--studio-ink); }
+  .row { display: flex; align-items: center; gap: 36px; flex-wrap: wrap; }
+  .onnavy { margin-top: 20px; background: #0b2e59; padding: 18px 22px; border-radius: var(--radius-lg); display: inline-flex; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const { Brand } = window.BurgerGovDesignSystem_d0c3b4;
+  function Demo() {
+    return (
+      <>
+        <div className="row">
+          <Brand size="sm" />
+          <Brand size="md" />
+          <Brand size="lg" />
+        </div>
+        <div className="onnavy"><span style={{ filter: "invert(1) brightness(2)" }}><Brand size="md" /></span></div>
+      </>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<Demo />);
+</script>
+</body>
+</html>

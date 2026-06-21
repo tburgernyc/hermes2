@@ -1,0 +1,32 @@
+<!-- @dsCard group="Spacing" viewport="700x180" name="Elevation & Glass" subtitle="Frosted surfaces, edge-lit, diffuse shadow" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; font-family: var(--font-sans);
+    background: radial-gradient(700px 360px at 80% -10%, rgba(120,140,255,0.10), transparent 60%), radial-gradient(500px 300px at 0% 100%, rgba(96,214,230,0.10), transparent 55%), var(--studio-bg);
+    padding: 24px 28px; display: flex; gap: 18px; align-items: stretch; }
+  .glass { flex: 1; background: var(--glass-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--glass-border); border-radius: var(--radius-xl); padding: 18px 20px;
+    box-shadow: var(--glass-shadow), var(--inset-highlight), var(--hairline); }
+  .glass.lift { box-shadow: var(--glass-shadow), var(--iris-shadow); transform: translateY(-3px); }
+  .t { font-weight: 600; font-size: 1rem; margin: 0 0 4px; color: var(--studio-ink); }
+  .m { color: var(--studio-muted); font-size: 0.85rem; margin: 0; }
+  .tag { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--studio-muted); }
+</style>
+</head>
+<body>
+  <div class="glass">
+    <div class="tag">rest</div>
+    <p class="t">Glass card</p>
+    <p class="m">blur(14px) · 1px light edge · diffuse shadow</p>
+  </div>
+  <div class="glass lift">
+    <div class="tag">hover</div>
+    <p class="t">Lifted</p>
+    <p class="m">translateY(−3px) + iris shadow</p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,44 @@
+/* ============================================================================
+ * BurgerGov — Elevation, glass & motion tokens
+ * The glassmorphism engine: frosted surfaces bend the off-white ground with
+ * blur + saturation, edge-lit by a 1px light-catching inset border and lifted
+ * by a soft, diffuse double shadow. Motion is ambient and quick (150ms ease).
+ * ========================================================================== */
+:root {
+  /* ---- Shadows ---- */
+  --shadow: 0 1px 2px rgba(16, 22, 29, 0.06), 0 8px 24px rgba(16, 22, 29, 0.06);
+  --glass-shadow: 0 1px 2px rgba(16, 22, 29, 0.04), 0 16px 40px -16px rgba(16, 22, 29, 0.18);
+  --iris-shadow: 0 26px 70px -28px rgba(48, 84, 150, 0.3); /* navy/steel lift on hover */
+
+  /* Reusable inner light line that sits on top of glass surfaces. */
+  --inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --hairline: 0 0 0 1px rgba(16, 22, 29, 0.03);
+
+  /* Primary (navy) button glow. */
+  --primary-shadow: 0 10px 24px -10px rgba(11, 46, 89, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --primary-shadow-hover: 0 14px 30px -10px rgba(11, 46, 89, 0.6);
+
+  /* ---- Glass blur recipes (apply with backdrop-filter) ---- */
+  --blur-card: blur(14px); /* @kind other */
+  --blur-chrome: blur(16px) saturate(140%); /* @kind other */
+  --blur-soft: blur(10px); /* @kind other */
+
+  /* ---- Neumorphism (soft-UI) — dual-light extrusion for tactile accents ---- */
+  --neu-bg: #eef1f6;          /* @kind color */
+  --neu-shadow: 6px 6px 16px rgba(16, 22, 29, 0.10), -6px -6px 16px rgba(255, 255, 255, 0.92);
+  --neu-shadow-sm: 3px 3px 8px rgba(16, 22, 29, 0.10), -3px -3px 8px rgba(255, 255, 255, 0.92);
+  --neu-inset: inset 3px 3px 8px rgba(16, 22, 29, 0.12), inset -3px -3px 8px rgba(255, 255, 255, 0.9);
+
+  /* ---- Neumorphic CONTROLS (icon/toggle buttons) ---- Light = plain aliases;
+     the Command dark theme tints the light side of the extrusion signal-green. */
+  --neu-bg-control: var(--neu-bg);            /* @kind color */
+  --neu-shadow-sm-control: var(--neu-shadow-sm);
+  --neu-inset-control: var(--neu-inset);
+
+  /* ---- Motion ---- */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* @kind other */ /* gentle overshoot */
+  /* slide-overs, drawers */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --transition-fast: 0.15s ease; /* @kind other */
+  --transition-base: 0.2s ease; /* @kind other */
+}

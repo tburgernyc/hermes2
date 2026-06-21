@@ -1,0 +1,118 @@
+/* ============================================================================
+ * BurgerGov — "Command" theme (dark)
+ * The institutional command-surface direction: refined glass over a near-black
+ * void, hyper-blue as the action color, an emerald automation signal, and a
+ * HUD-grade precision. It overrides the SAME semantic token names the studio
+ * theme fills, so every component + UI kit re-themes automatically when an
+ * ancestor carries data-theme="command".
+ *
+ * Apply by setting data-theme="command" on <html> (or any wrapper element).
+ * Lineage: hermes2 spec — Zinc-950 void, glassmorphic engine, hyper-blue gate.
+ * ========================================================================== */
+[data-theme="command"] {
+  /* ---- Ground + ink ---- */
+  --studio-bg: #09090b;        /* the void — zinc-950 */
+  --studio-bg-tint: #111114;   /* alternating section wash */
+  --studio-ink: #fafafa;       /* zinc-50 body text ≈ 18:1 on void */
+  --studio-muted: #a1a1aa;     /* zinc-400 secondary ≈ 7:1 */
+  --studio-line: #27272a;      /* zinc-800 hairline */
+  --studio-primary: #3b82f6;   /* hyper-blue — the action color */
+  --studio-primary-hover: #60a5fa;
+
+  /* ---- Navy ramp re-mapped to the blue ramp (used by gradients) ---- */
+  --navy-900: #1e3a8a;
+  --navy-800: #2563eb;
+  --navy-700: #3b82f6;
+  --navy-600: #60a5fa;
+  --navy-500: #60a5fa;
+
+  /* ---- Glass material — frosted zinc panels lensing the void ---- */
+  --glass-bg: rgba(24, 24, 27, 0.55);
+  --glass-bg-strong: rgba(24, 24, 27, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.08);
+
+  /* ---- Shadows + lift (deeper on dark; primary glow is hyper-blue) ---- */
+  --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 48px -18px rgba(0, 0, 0, 0.8);
+  --iris-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35), 0 28px 70px -26px rgba(37, 99, 235, 0.55);
+  --inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --hairline: 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --primary-shadow: 0 12px 30px -10px rgba(37, 99, 235, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  --primary-shadow-hover: 0 16px 40px -10px rgba(37, 99, 235, 0.7);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* ---- Link ---- */
+  --link: #60a5fa;
+
+  /* ---- Semantic tones (translucent fills + lit borders on the void) ---- */
+  --tone-info-surface: rgba(37, 99, 235, 0.15);
+  --tone-info-border: rgba(96, 165, 250, 0.45);
+  --tone-info-ink: #93c5fd;
+
+  --tone-success-surface: rgba(16, 185, 129, 0.14);
+  --tone-success-border: rgba(16, 185, 129, 0.5);
+  --tone-success-ink: #6ee7b7;
+
+  --tone-warn-surface: rgba(245, 158, 11, 0.14);
+  --tone-warn-border: rgba(245, 158, 11, 0.45);
+  --tone-warn-ink: #fcd34d;
+
+  --tone-danger-surface: rgba(239, 68, 68, 0.14);
+  --tone-danger-border: rgba(239, 68, 68, 0.45);
+  --tone-danger-ink: #fca5a5;
+
+  /* ---- Signal accent — emerald, the "automation is live" pulse ---- */
+  --signal: #34d399;
+  --signal-soft: rgba(16, 185, 129, 0.16);
+  --signal-line: rgba(52, 211, 153, 0.5);
+
+  /* ---- Ambient decoration ---- */
+  --grid-line: rgba(255, 255, 255, 0.045);
+  --glow-primary: rgba(37, 99, 235, 0.28);
+  --glow-signal: rgba(16, 185, 129, 0.22);
+
+  /* ---- Neumorphism (soft-UI) on the void — subtle, low-contrast ---- */
+  --neu-bg: #161619;
+  --neu-shadow: 6px 6px 18px rgba(0, 0, 0, 0.66), -6px -6px 18px rgba(255, 255, 255, 0.035);
+  --neu-shadow-sm: 3px 3px 9px rgba(0, 0, 0, 0.66), -3px -3px 9px rgba(255, 255, 255, 0.035);
+  --neu-inset: inset 3px 3px 9px rgba(0, 0, 0, 0.7), inset -3px -3px 9px rgba(255, 255, 255, 0.04);
+
+  /* ---- Interactive controls — faint signal-green hue ----
+     Text inputs, selects and secondary buttons pick up a very slight emerald
+     tint (the --signal hue) so they read as interactive on the void, while
+     keeping the glass / neumorphic material intact. */
+  --control-bg: rgba(22, 30, 26, 0.6);            /* input/select surface, green-leaning dark */
+  --control-border: rgba(52, 211, 153, 0.22);     /* faint emerald hairline */
+  --btn-secondary-bg: rgba(24, 33, 28, 0.62);     /* secondary button surface */
+  --btn-secondary-border: rgba(52, 211, 153, 0.32);
+  --btn-secondary-ring: 0 0 0 1px rgba(52, 211, 153, 0.18);
+
+  /* Neumorphic icon/toggle buttons: tint the lit side of the extrusion green. */
+  --neu-bg-control: #151a17;
+  --neu-shadow-sm-control: 3px 3px 9px rgba(0, 0, 0, 0.66), -3px -3px 9px rgba(52, 211, 153, 0.08);
+  --neu-inset-control: inset 3px 3px 9px rgba(0, 0, 0, 0.7), inset -3px -3px 9px rgba(52, 211, 153, 0.08);
+
+  /* ---- Type: inherits the light Studio theme's font schema entirely
+     (families, weights, scale) — no per-theme type overrides. ---- */
+
+  /* ---- Focus ---- */
+  --color-focus: #60a5fa;
+
+  /* ---- Legacy aliases ---- */
+  --color-bg: #09090b;
+  --color-ink: #fafafa;
+  --color-muted: #a1a1aa;
+  --color-line: #27272a;
+  --color-primary: #3b82f6;
+  --color-link: #60a5fa;
+  --color-warn-surface: rgba(245, 158, 11, 0.14);
+  --color-warn-ink: #fcd34d;
+  --color-accent-surface: rgba(37, 99, 235, 0.15);
+}
+
+/* Carry the void to the document when the theme owns the whole page. */
+[data-theme="command"] body,
+html[data-theme="command"],
+body[data-theme="command"] {
+  background: var(--studio-bg);
+  color: var(--studio-ink);
+}

@@ -1,0 +1,44 @@
+/* ============================================================================
+ * BurgerGov — Typography tokens
+ * Extreme-contrast type system: massive THIN display headers (weight 300, tight
+ * negative tracking) set against tiny, wide-tracked MONO CAPS for labels, nav,
+ * and data. System font stacks only — no webfont dependency (keeps the CSP
+ * style/font-src honest and the bundle light).
+ * ========================================================================== */
+:root {
+  /* ---- Families ---- */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-display: var(--font-sans); /* same family, used at weight 300 */
+
+  /* ---- Display weight — the "thin" half of the contrast ---- */
+  --weight-display: 400;
+  --weight-body: 400;
+  --weight-medium: 600;
+  --weight-strong: 700;
+
+  /* ---- Type scale (fluid display → fixed body/mono) ---- */
+  --text-hero: clamp(2.6rem, 6.2vw, 4.6rem);   /* hero headline, weight 300 */
+  --text-display: clamp(2.2rem, 5vw, 3.4rem);  /* page h1, weight 300 */
+  --text-h2: clamp(1.7rem, 3.2vw, 2.4rem);     /* section title, weight 300 */
+  --text-h3: 1.2rem;                            /* card title, weight 600 */
+  --text-lede: clamp(1.08rem, 1.5vw, 1.3rem);  /* intro paragraph */
+  --text-body: 1rem;
+  --text-sm: 0.92rem;
+  --text-xs: 0.85rem;
+
+  /* ---- Mono caps (labels, nav, kickers, table headers) ---- */
+  --text-mono-cap: 0.74rem;
+  --tracking-mono: 0.12em;     /* nav + labels */
+  --tracking-kicker: 0.18em;   /* hero kicker */
+
+  /* ---- Tracking for display ---- */
+  --tracking-hero: -0.035em;
+  --tracking-display: -0.03em;
+  --tracking-tight: -0.02em;
+
+  /* ---- Line heights ---- */
+  --leading-display: 1.04;
+  --leading-heading: 1.2;
+  --leading-body: 1.6;
+}

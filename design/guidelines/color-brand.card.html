@@ -1,0 +1,27 @@
+<!-- @dsCard group="Colors" viewport="700x172" name="Brand Navy" subtitle="The single brand color + its gradient ramp" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; background: var(--studio-bg); font-family: var(--font-sans); padding: 20px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .sw { flex: 1 1 110px; border-radius: var(--radius-lg); padding: 14px; min-height: 92px; display: flex; flex-direction: column; justify-content: flex-end; box-shadow: var(--hairline); }
+  .name { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; }
+  .hex { font-family: var(--font-mono); font-size: 0.72rem; opacity: 0.85; }
+  .on-dark { color: #fff; }
+  .on-dark .hex { color: rgba(255,255,255,0.8); }
+  .grad { background: linear-gradient(180deg, #154a86, #0b2e59); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="sw on-dark" style="background:#0a2547"><span class="name">navy-900</span><span class="hex">#0A2547</span></div>
+    <div class="sw on-dark" style="background:#0b2e59"><span class="name">primary · navy-800</span><span class="hex">#0B2E59</span></div>
+    <div class="sw on-dark" style="background:#154a86"><span class="name">navy-700</span><span class="hex">#154A86</span></div>
+    <div class="sw on-dark" style="background:#1457c9"><span class="name">link · 500</span><span class="hex">#1457C9</span></div>
+    <div class="sw on-dark grad"><span class="name">primary gradient</span><span class="hex">154A86 → 0B2E59</span></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,95 @@
+/* ============================================================================
+ * BurgerGov — Color tokens
+ * The "studio" light-mode palette: a luminous off-white ground, deep federal
+ * navy as the single brand color, glassmorphism surfaces, and a restrained set
+ * of semantic state tones. Every text/background pair is chosen for WCAG 2.1 AA.
+ * Source of truth: hermes2 apps/web/app/globals.css + console.module.css.
+ * ========================================================================== */
+:root {
+  /* ---- Studio ground + ink (the primary surface system) ---- */
+  --studio-bg: #f7f8fb;        /* luminous off-white — omnidirectional studio light */
+  --studio-bg-tint: #eef2f8;   /* alternating section wash / subtle fills */
+  --studio-ink: #0f1115;       /* near-black body text ≈ 18:1 on bg */
+  --studio-muted: #475569;     /* secondary text ≈ 6.9:1 (AA) */
+  --studio-line: #e2e8f0;      /* hairline borders + dividers */
+  --studio-primary: #0b2e59;   /* federal navy — the single brand color (white on it ≈ 12:1) */
+  --studio-primary-hover: #0a2547;
+
+  /* ---- Brand navy ramp (for gradients + tints) ---- */
+  --navy-900: #0a2547;
+  --navy-800: #0b2e59;
+  --navy-700: #154a86;
+  --navy-600: #1b5495;
+  --navy-500: #1457c9;         /* link / interactive blue */
+
+  /* ---- Glass material (frosted surfaces float over the studio ground) ---- */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.7);   /* light-catching edge */
+
+  /* ---- Interactive controls (text inputs, selects, secondary buttons) ----
+     Light = plain aliases of glass/line (no tint). The Command dark theme
+     overrides these with a faint signal-green hue to make controls more
+     identifiable without breaking the neumorphic / glass surface. */
+  --control-bg: var(--glass-bg);              /* input + select surface */
+  --control-border: var(--studio-line);       /* input + select hairline */
+  --btn-secondary-bg: var(--glass-bg);        /* secondary button surface */
+  --btn-secondary-border: var(--glass-border);/* secondary button edge */
+  --btn-secondary-ring: 0 0 0 1px rgba(11, 46, 89, .16); /* secondary ring */
+
+  /* ---- Semantic state tones (badges, alerts, inline validation) ---- */
+  --tone-info-surface: #eaf1fb;
+  --tone-info-border: #b9d0f0;
+  --tone-info-ink: #0b2e59;
+
+  --tone-success-surface: #e8f6ec;
+  --tone-success-border: #aedcbb;
+  --tone-success-ink: #14532d;
+
+  --tone-warn-surface: #fff4e5;
+  --tone-warn-border: #f0c98a;
+  --tone-warn-ink: #7a4b00;
+
+  --tone-danger-surface: #fdecec;
+  --tone-danger-border: #f3b6b6;
+  --tone-danger-ink: #7a1a1a;
+  --tone-danger-solid: #b42318; /* destructive button fill */
+  --tone-danger-solid-hover: #971b12;
+
+  /* ---- Signal accent (live / active / automation) ---- */
+  --signal: #1f8a5b;          /* emerald, AA on light surfaces */
+  --signal-soft: rgba(31, 138, 91, 0.12);
+  --signal-line: rgba(31, 138, 91, 0.4);
+
+  /* ---- Ambient decoration ---- */
+  --grid-line: rgba(16, 22, 29, 0.05);
+  --glow-primary: rgba(37, 99, 235, 0.18);
+  --glow-signal: rgba(16, 185, 129, 0.16);
+
+  /* ---- Focus ---- */
+  --color-focus: #1457c9;
+
+  /* ---- Semantic aliases (prefer these in components) ---- */
+  --bg: var(--studio-bg);
+  --surface: var(--glass-bg);
+  --surface-strong: var(--glass-bg-strong);
+  --surface-solid: #ffffff;
+  --text: var(--studio-ink);
+  --text-muted: var(--studio-muted);
+  --border: var(--studio-line);
+  --primary: var(--studio-primary);
+  --link: var(--navy-500);
+
+  /* ---- Legacy marketing token set (pre-studio admin/portal pages) ---- */
+  --color-bg: #ffffff;
+  --color-surface: #f5f7fa;
+  --color-surface-2: #eef2f7;
+  --color-ink: #11161d;
+  --color-muted: #44505f;
+  --color-line: #d7dee7;
+  --color-primary: #0b2e59;
+  --color-link: #1457c9;
+  --color-accent-surface: #eaf1fb;
+  --color-warn-surface: #fff4e5;
+  --color-warn-ink: #7a4b00;
+}

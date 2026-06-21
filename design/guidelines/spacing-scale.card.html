@@ -1,0 +1,28 @@
+<!-- @dsCard group="Spacing" viewport="700x140" name="Spacing Scale" subtitle="4px-based rhythm, 1 → 24" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; background: var(--studio-bg); font-family: var(--font-mono); padding: 22px 28px; }
+  .row { display: flex; align-items: flex-end; gap: 14px; }
+  .item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .bar { background: linear-gradient(180deg, #154a86, #0b2e59); border-radius: 4px; width: 22px; }
+  .lbl { font-size: 0.6rem; color: var(--studio-muted); letter-spacing: 0.04em; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="item"><div class="bar" style="height:4px"></div><div class="lbl">1·4</div></div>
+    <div class="item"><div class="bar" style="height:8px"></div><div class="lbl">2·8</div></div>
+    <div class="item"><div class="bar" style="height:12px"></div><div class="lbl">3·12</div></div>
+    <div class="item"><div class="bar" style="height:16px"></div><div class="lbl">4·16</div></div>
+    <div class="item"><div class="bar" style="height:24px"></div><div class="lbl">6·24</div></div>
+    <div class="item"><div class="bar" style="height:32px"></div><div class="lbl">8·32</div></div>
+    <div class="item"><div class="bar" style="height:48px"></div><div class="lbl">12·48</div></div>
+    <div class="item"><div class="bar" style="height:64px"></div><div class="lbl">16·64</div></div>
+    <div class="item"><div class="bar" style="height:80px"></div><div class="lbl">24·96</div></div>
+  </div>
+</body>
+</html>

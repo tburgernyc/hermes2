@@ -1,0 +1,32 @@
+<!-- @dsCard group="Colors" viewport="700x230" name="Dual Themes" subtitle="Studio (light) ↔ Command (dark) — same tokens, flipped" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { margin: 0; font-family: var(--font-sans); padding: 20px; background: #e9edf3; display: flex; gap: 16px; }
+  .pane { flex: 1; border-radius: var(--radius-lg); padding: 18px; border: 1px solid var(--studio-line); background: var(--studio-bg); color: var(--studio-ink); }
+  .pane .lbl { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--studio-muted); }
+  .pane h3 { font-weight: var(--weight-display); letter-spacing: -0.02em; font-size: 1.7rem; margin: 6px 0 12px; }
+  .swatches { display: flex; gap: 8px; margin-bottom: 12px; }
+  .sw { width: 30px; height: 30px; border-radius: 7px; border: 1px solid var(--glass-border); }
+  .btn { display: inline-block; font-size: 0.8rem; font-weight: 600; color: #fff; padding: 0.45rem 0.9rem; border-radius: var(--radius-pill); background: linear-gradient(180deg, var(--navy-700), var(--studio-primary)); box-shadow: var(--primary-shadow); }
+  .chip { display: inline-block; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--signal); border: 1px solid var(--signal-line); background: var(--signal-soft); border-radius: 999px; padding: 0.2rem 0.5rem; margin-left: 6px; }
+</style>
+</head>
+<body>
+  <div class="pane">
+    <div class="lbl">Default</div>
+    <h3>Studio · light</h3>
+    <div class="swatches"><span class="sw" style="background:var(--studio-bg)"></span><span class="sw" style="background:var(--studio-bg-tint)"></span><span class="sw" style="background:var(--studio-primary)"></span><span class="sw" style="background:var(--signal)"></span><span class="sw" style="background:var(--studio-ink)"></span></div>
+    <span class="btn">Primary</span><span class="chip">Live</span>
+  </div>
+  <div class="pane" data-theme="command">
+    <div class="lbl">Institutional</div>
+    <h3>Command · dark</h3>
+    <div class="swatches"><span class="sw" style="background:var(--studio-bg)"></span><span class="sw" style="background:var(--studio-bg-tint)"></span><span class="sw" style="background:var(--studio-primary)"></span><span class="sw" style="background:var(--signal)"></span><span class="sw" style="background:var(--studio-ink)"></span></div>
+    <span class="btn">Primary</span><span class="chip">Live</span>
+  </div>
+</body>
+</html>

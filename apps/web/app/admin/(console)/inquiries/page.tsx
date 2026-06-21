@@ -53,7 +53,7 @@ export default async function InquiriesPage(): Promise<JSX.Element> {
               <div className={c.rowBetween}>
                 <div>
                   <strong>{i.name}</strong> · {i.email}
-                  {i.company ? ` · ${i.company}` : ""}
+                  {i.company ? <div className={c.metaMono}>{i.company}</div> : null}
                 </div>
                 <div className={c.row}>
                   <Badge tone="info">{i.intent}</Badge>
@@ -61,7 +61,7 @@ export default async function InquiriesPage(): Promise<JSX.Element> {
                   <span className={c.meta}>{i.createdAt.toISOString().slice(0, 10)}</span>
                 </div>
               </div>
-              <blockquote>{i.message}</blockquote>
+              <blockquote className={c.inquiryQuote}>{i.message}</blockquote>
               {i.status === "NEW" && (
                 <form action={markInquiryReviewed}>
                   <input type="hidden" name="inquiryId" value={i.id} />

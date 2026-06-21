@@ -26,35 +26,38 @@ export function InviteForm({ vendors }: { vendors: VendorOption[] }): JSX.Elemen
 
   return (
     <form action={action}>
-      <Select label="Vendor" name="vendorId" required defaultValue="">
-        <option value="" disabled>
-          Select a vetted vendor
-        </option>
-        {vendors.map((v) => (
-          <option key={v.id} value={v.id}>
-            {v.companyName}
+      <div className={c.formGrid}>
+        <Select label="Vendor" name="vendorId" required defaultValue="">
+          <option value="" disabled>
+            Select a vetted vendor
           </option>
-        ))}
-      </Select>
-      <Field
-        label="Email"
-        name="email"
-        type="email"
-        required
-        maxLength={254}
-        placeholder="contact@vendor.example"
-      />
+          {vendors.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.companyName}
+            </option>
+          ))}
+        </Select>
+        <Field
+          label="Email"
+          name="email"
+          type="email"
+          required
+          maxLength={254}
+          placeholder="contact@vendor.example"
+        />
+      </div>
       <Button type="submit" disabled={pending}>
         Create invite link
       </Button>
 
       {state.error ? <Alert>{state.error}</Alert> : null}
       {state.ok && state.link ? (
-        <p data-testid="invite-link">
-          Single-use invite link for {state.email} (copy + send it to the vendor):
-          <br />
-          <code className={c.code}>{state.link}</code>
-        </p>
+        <div data-testid="invite-link">
+          <p className={c.meta}>
+            Single-use invite link for {state.email} (copy + send it to the vendor):
+          </p>
+          <div className={c.inviteLink}>{state.link}</div>
+        </div>
       ) : null}
     </form>
   );

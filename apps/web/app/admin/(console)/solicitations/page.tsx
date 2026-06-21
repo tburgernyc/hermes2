@@ -61,15 +61,15 @@ export default async function SolicitationsBoard(): Promise<JSX.Element> {
             ) : (
               <div className={c.columnCards}>
                 {col.items.map((s) => (
-                  <Card as="article" key={s.id} size="sm">
-                    <Link href={`/admin/solicitations/${s.id}`}>
-                      <strong>{s.title}</strong>
+                  <Card as="article" key={s.id} size="sm" className={c.hoverable}>
+                    <Link href={`/admin/solicitations/${s.id}`} className={c.linkish}>
+                      {s.title}
                     </Link>
-                    <div className={c.meta}>{s.agency ?? "—"}</div>
+                    <div className={c.metaMono}>{s.agency ?? "—"}</div>
                     <div className={c.row}>
                       <Badge>{humanizeStatus(s.status)}</Badge>
-                      <span className={c.meta}>
-                        feasibility {s.feasibilityScore ?? "?"} · fit {s.zeroFloatFit ?? "?"}
+                      <span className={c.metaMono}>
+                        feas {s.feasibilityScore ?? "?"} · fit {s.zeroFloatFit ?? "?"}
                       </span>
                     </div>
                     {s.status === "TRIAGE_COMPLETE" && (

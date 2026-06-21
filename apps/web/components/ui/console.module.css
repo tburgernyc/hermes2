@@ -414,6 +414,114 @@
   color: var(--studio-ink);
 }
 
+/* ---- Kit vocabulary: admin content screens (Segment 6 hi-fi port) ---- */
+/* Ported 1:1 from design/ui_kits/console/console.css; the kit's --tone-warn-* map to the repo's
+   canonical --color-warn-* tokens (same surface/ink/border used by .toneWarn + .statWarn). */
+.linkish {
+  color: var(--link);
+  font-weight: 600;
+  text-decoration: none;
+}
+.linkish:hover {
+  text-decoration: underline;
+}
+.scoreBar {
+  height: 6px;
+  width: 120px;
+  border-radius: var(--radius-pill);
+  background: var(--studio-line);
+  overflow: hidden;
+}
+.scoreFill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--studio-primary), var(--signal));
+}
+/* feasibilityScore is an integer 1–10; width = score × 10% via a static data-attribute selector
+   (the kit used an inline style={{width}}, which the strict CSP style-src forbids — CLAUDE.md §7). */
+.scoreFill[data-score="1"] {
+  width: 10%;
+}
+.scoreFill[data-score="2"] {
+  width: 20%;
+}
+.scoreFill[data-score="3"] {
+  width: 30%;
+}
+.scoreFill[data-score="4"] {
+  width: 40%;
+}
+.scoreFill[data-score="5"] {
+  width: 50%;
+}
+.scoreFill[data-score="6"] {
+  width: 60%;
+}
+.scoreFill[data-score="7"] {
+  width: 70%;
+}
+.scoreFill[data-score="8"] {
+  width: 80%;
+}
+.scoreFill[data-score="9"] {
+  width: 90%;
+}
+.scoreFill[data-score="10"] {
+  width: 100%;
+}
+.rankPill {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--signal);
+  background: var(--signal-soft);
+  border: 1px solid var(--signal-line);
+  border-radius: var(--radius-pill);
+  padding: 0.1rem 0.5rem;
+}
+.bulletList {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.2rem;
+  color: var(--studio-ink);
+  line-height: 1.6;
+  display: grid;
+  gap: var(--space-1);
+}
+.bulletList li {
+  font-size: 0.92rem;
+}
+.blockerCard {
+  border-color: var(--color-warn-border);
+  border-left: 3px solid var(--color-warn-ink);
+}
+.inquiryQuote {
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 2px solid var(--studio-line);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--studio-bg-tint);
+  color: var(--studio-ink);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+.formGrid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.inviteLink {
+  margin-top: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--studio-ink);
+  background: var(--studio-bg-tint);
+  border: 1px dashed var(--signal-line);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  word-break: break-all;
+}
+
 /* ---- App shell (portal layout) ---- */
 .appShell {
   min-height: 100vh;

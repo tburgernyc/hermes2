@@ -67,7 +67,7 @@ export default async function VendorsPage(): Promise<JSX.Element> {
         ) : (
           <ul className={c.list}>
             {qualifiedProspects.map((p) => (
-              <Card as="li" key={p.id} size="sm">
+              <Card as="li" key={p.id} size="sm" className={c.hoverable}>
                 <div className={c.rowBetween}>
                   <strong>{p.companyName}</strong>
                   <form action={promoteProspectToVendor}>
@@ -89,7 +89,7 @@ export default async function VendorsPage(): Promise<JSX.Element> {
         ) : (
           <ul className={c.list}>
             {pendingVendors.map((v) => (
-              <Card as="li" key={v.id} size="sm">
+              <Card as="li" key={v.id} size="sm" className={c.hoverable}>
                 <div className={c.rowBetween}>
                   <strong>{v.companyName}</strong>
                   <form action={vetVendor}>
@@ -111,26 +111,28 @@ export default async function VendorsPage(): Promise<JSX.Element> {
         ) : (
           <Card>
             <form action={linkVendorUser}>
-              <Select label="User" name="userId" required defaultValue="">
-                <option value="" disabled>
-                  Select a user
-                </option>
-                {unlinkedUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.email}
+              <div className={c.formGrid}>
+                <Select label="User" name="userId" required defaultValue="">
+                  <option value="" disabled>
+                    Select a user
                   </option>
-                ))}
-              </Select>
-              <Select label="Vendor" name="vendorId" required defaultValue="">
-                <option value="" disabled>
-                  Select a vendor
-                </option>
-                {vettedVendors.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.companyName}
+                  {unlinkedUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.email}
+                    </option>
+                  ))}
+                </Select>
+                <Select label="Vendor" name="vendorId" required defaultValue="">
+                  <option value="" disabled>
+                    Select a vendor
                   </option>
-                ))}
-              </Select>
+                  {vettedVendors.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.companyName}
+                    </option>
+                  ))}
+                </Select>
+              </div>
               <Button type="submit">Link</Button>
             </form>
           </Card>

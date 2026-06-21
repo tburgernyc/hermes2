@@ -64,10 +64,12 @@ export default async function ProspectsPage(): Promise<JSX.Element> {
       <Section title="Add a prospect">
         <Card>
           <form action={addProspect}>
-            <Field label="Company" name="companyName" required maxLength={200} />
-            <Field label="Email" name="contactEmail" type="email" />
-            <Field label="NAICS" name="naicsCodes" placeholder="541511, 541512" />
-            <Field label="Capabilities" name="capabilitiesText" />
+            <div className={c.formGrid}>
+              <Field label="Company" name="companyName" required maxLength={200} />
+              <Field label="Email" name="contactEmail" type="email" />
+              <Field label="NAICS" name="naicsCodes" placeholder="541511, 541512" />
+              <Field label="Capabilities" name="capabilitiesText" />
+            </div>
             <Button type="submit">Add prospect</Button>
           </form>
         </Card>
@@ -79,14 +81,17 @@ export default async function ProspectsPage(): Promise<JSX.Element> {
         ) : (
           <ul className={c.list}>
             {prospects.map((p) => (
-              <Card as="li" key={p.id} size="sm" testId={`prospect-${p.id}`}>
+              <Card as="li" key={p.id} size="sm" testId={`prospect-${p.id}`} className={c.hoverable}>
                 <div className={c.rowBetween}>
                   <div>
                     <strong>{p.companyName}</strong>
-                    {p.contactEmail ? ` · ${p.contactEmail}` : ""}
+                    {p.contactEmail ? (
+                      <span className={c.metaMono}> · {p.contactEmail}</span>
+                    ) : null}
                     <div className={c.row}>
                       <Badge>{humanizeStatus(p.status)}</Badge>
                       <Badge tone="neutral">{humanizeStatus(p.prospectSource)}</Badge>
+                      <span className={c.metaMono}>score {p.discoveryScore ?? "?"}</span>
                     </div>
                   </div>
                   {isQualifiableProspectStatus(p.status) && (

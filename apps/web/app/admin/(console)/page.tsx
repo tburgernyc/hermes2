@@ -48,6 +48,8 @@ export default async function AdminHome(): Promise<JSX.Element> {
       .select({
         id: solicitations.id,
         title: solicitations.title,
+        agency: solicitations.agency,
+        zeroFloatFit: solicitations.zeroFloatFit,
         feasibilityScore: solicitations.feasibilityScore,
       })
       .from(solicitations)
@@ -145,10 +147,26 @@ export default async function AdminHome(): Promise<JSX.Element> {
         ) : (
           <ul className={c.list}>
             {brief.triaged.map((s) => (
-              <Card as="li" key={s.id} size="sm">
+              <Card as="li" key={s.id} size="sm" className={c.hoverable}>
                 <div className={c.rowBetween}>
-                  <Link href={`/admin/solicitations/${s.id}`}>{s.title}</Link>
-                  <span className={c.meta}>feasibility {s.feasibilityScore ?? "?"}</span>
+                  <div>
+                    <Link href={`/admin/solicitations/${s.id}`} className={c.linkish}>
+                      {s.title}
+                    </Link>
+                    <div className={c.metaMono}>
+                      {s.agency ?? "—"} · fit {s.zeroFloatFit ?? "?"}
+                    </div>
+                  </div>
+                  <div className={c.row}>
+                    <div
+                      className={c.scoreBar}
+                      title={`feasibility ${s.feasibilityScore ?? 0} / 10`}
+                      aria-hidden="true"
+                    >
+                      <div className={c.scoreFill} data-score={s.feasibilityScore ?? 0} />
+                    </div>
+                    <span className={c.metaMono}>{s.feasibilityScore ?? "?"}</span>
+                  </div>
                 </div>
               </Card>
             ))}

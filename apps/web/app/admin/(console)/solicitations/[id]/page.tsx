@@ -105,6 +105,12 @@ export default async function SolicitationDetail({
             {sol.responseDeadline ? ` · due ${sol.responseDeadline.toISOString()}` : ""}
           </>
         }
+        actions={
+          <>
+            <Badge tone="info">feasibility {sol.feasibilityScore ?? "?"}</Badge>
+            <Badge>{sol.contractType ?? "—"}</Badge>
+          </>
+        }
       />
       {(sol.status === "PROPOSAL_DRAFT" || sol.status === "SUBMITTED") && (
         <p>
@@ -116,14 +122,14 @@ export default async function SolicitationDetail({
 
       <Section title="Triage recommendation">
         <Card>
-          <p>
-            Feasibility {sol.feasibilityScore ?? "?"} / 10 · zero-float fit {sol.zeroFloatFit ?? "?"} ·
-            contract type {sol.contractType ?? "?"} · NAICS {sol.naicsCode ?? "?"}
+          <p className={c.metaMono}>
+            NAICS {sol.naicsCode ?? "?"} · zero-float fit {sol.zeroFloatFit ?? "?"} · contract type{" "}
+            {sol.contractType ?? "?"}
           </p>
           {sol.rejectionReasons && sol.rejectionReasons.length > 0 && (
             <>
-              <h3>Flagged concerns</h3>
-              <ul>
+              <strong>Flagged concerns</strong>
+              <ul className={c.bulletList}>
                 {sol.rejectionReasons.map((r, i) => (
                   <li key={i}>{r}</li>
                 ))}
@@ -166,15 +172,18 @@ export default async function SolicitationDetail({
                 (q.vendorId && names.get(q.vendorId)) ||
                 "subcontractor";
               return (
-                <Card as="li" key={q.id} size="sm" testId={`quote-${q.id}`}>
+                <Card as="li" key={q.id} size="sm" testId={`quote-${q.id}`} className={c.hoverable}>
                   <div className={c.rowBetween}>
                     <div>
-                      <strong>{name}</strong>
+                      <div className={c.row}>
+                        {typeof q.aiRank === "number" ? (
+                          <span className={c.rankPill}>#{q.aiRank}</span>
+                        ) : null}
+                        <strong>{name}</strong>
+                      </div>
                       <div className={c.row}>
                         <Badge>{humanizeStatus(q.status)}</Badge>
-                        <span className={c.meta}>
-                          {q.totalPrice ?? "—"} · AI rank {q.aiRank ?? "?"}
-                        </span>
+                        <span className={c.metaMono}>{q.totalPrice ?? "—"}</span>
                       </div>
                     </div>
                     <div className={c.row}>

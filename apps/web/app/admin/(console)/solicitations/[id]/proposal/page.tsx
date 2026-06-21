@@ -151,10 +151,10 @@ export default async function ProposalReview({
                 {scenarios.map((s, i) => (
                   <tr key={i} data-testid={`scenario-${i}`}>
                     <td>{s.label}</td>
-                    <td>{usd(s.price)}</td>
-                    <td>{pct(s.feePct)}</td>
-                    <td>{pct(s.marginPct)}</td>
-                    <td>{pct(s.vsBenchmarkMedianPct)}</td>
+                    <td className={c.tableNum}>{usd(s.price)}</td>
+                    <td className={c.tableNum}>{pct(s.feePct)}</td>
+                    <td className={c.tableNum}>{pct(s.marginPct)}</td>
+                    <td className={c.tableNum}>{pct(s.vsBenchmarkMedianPct)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -166,25 +166,36 @@ export default async function ProposalReview({
         </p>
       </Section>
 
-      <Section title="Compliance checklist">
-        <Checklist items={compliance.compliance?.checklist ?? []} />
-      </Section>
-
-      <Section title="Bid checklist (§3)">
-        <Checklist items={compliance.bidChecklist?.checklist ?? []} />
-      </Section>
+      <div className={c.split}>
+        <div>
+          <div className={c.sectionHead}>
+            <h2 className={c.sectionTitle}>Compliance checklist</h2>
+          </div>
+          <Card>
+            <Checklist items={compliance.compliance?.checklist ?? []} />
+          </Card>
+        </div>
+        <div>
+          <div className={c.sectionHead}>
+            <h2 className={c.sectionTitle}>Bid checklist (§3)</h2>
+          </div>
+          <Card>
+            <Checklist items={compliance.bidChecklist?.checklist ?? []} />
+          </Card>
+        </div>
+      </div>
 
       <section data-testid="live-blockers" className={c.section}>
         <h2 className={c.sectionTitle}>Live-submission blockers</h2>
         {liveReady ? (
           <p>No blockers — this bid is cleared for live submission.</p>
         ) : (
-          <Card>
+          <Card className={c.blockerCard}>
             <p>
               This bid <strong>cannot</strong> be submitted yet. The following must be resolved before any
               real bid leaves the building:
             </p>
-            <ul>
+            <ul className={c.bulletList}>
               {blockers.map((b, i) => (
                 <li key={i}>{b}</li>
               ))}

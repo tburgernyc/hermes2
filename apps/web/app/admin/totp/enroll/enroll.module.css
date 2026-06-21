@@ -3,16 +3,16 @@
   margin: 0 0 var(--space-4);
   font-size: 0.95rem;
 }
-.qr {
-  display: flex;
-  justify-content: center;
-  margin: var(--space-4) 0;
-}
-.qr img {
-  border-radius: var(--radius);
-  border: 1px solid var(--studio-line);
+.qrFrame {
+  display: inline-flex;
+  padding: var(--space-4);
+  margin: var(--space-2) 0 var(--space-4);
   background: #fff;
-  padding: var(--space-2);
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius);
+}
+.qrFrame img {
+  display: block;
 }
 .key {
   font-family: var(--font-mono);

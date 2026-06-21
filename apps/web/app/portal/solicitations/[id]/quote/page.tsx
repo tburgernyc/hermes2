@@ -77,7 +77,10 @@ export default async function VendorQuotePage({ params, searchParams }: PageProp
 
   return (
     <main>
-      <PageHeader title="Submit a quote" />
+      <PageHeader
+        title="Submit a quote"
+        lede="Enter your line items, terms, and upload your quote document. Nothing is shared with other subcontractors."
+      />
       {status && STATUS_MESSAGE[status] ? (
         <Alert testId="submit-status">{STATUS_MESSAGE[status]}</Alert>
       ) : null}

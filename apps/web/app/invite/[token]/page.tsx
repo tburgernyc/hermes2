@@ -11,7 +11,7 @@ import { TokenError, hashToken, verifyToken } from "@hermes/core";
 import { and, eq, isNull, vendorInvites, vendors, withOrg } from "@hermes/db";
 
 import { Alert } from "@/components/ui/Alert";
-import { AuthScreen } from "@/components/ui/AuthScreen";
+import { AuthLink, AuthNote, AuthScreen } from "@/components/ui/AuthScreen";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 
@@ -36,11 +36,18 @@ interface PageProps {
 
 function InvalidLink(): JSX.Element {
   return (
-    <AuthScreen title="This link is no longer valid">
+    <AuthScreen
+      title="This link is no longer valid"
+      quote="You were invited directly. This secure link sets up your account — there is no public sign-up."
+      asideTag="Single-use onboarding link"
+    >
       <p>
         The invitation may have expired or already been used. Please contact your Burger Consulting
         point of contact for a new one.
       </p>
+      <AuthNote>
+        Already have an account? <AuthLink href="/login">Sign in →</AuthLink>
+      </AuthNote>
     </AuthScreen>
   );
 }
@@ -82,6 +89,7 @@ export default async function InvitePage({ params, searchParams }: PageProps): P
 
   return (
     <AuthScreen
+      badge={`Invitation · ${invite.companyName}`}
       title="Set up your subcontractor account"
       subtitle={
         <>
@@ -89,6 +97,8 @@ export default async function InvitePage({ params, searchParams }: PageProps): P
           <strong>{invite.companyName}</strong>. Choose a password to finish setting up your account.
         </>
       }
+      quote="You were invited directly. This secure link sets up your account — there is no public sign-up."
+      asideTag="Single-use onboarding link"
     >
       {status && STATUS_MESSAGE[status] ? <Alert>{STATUS_MESSAGE[status]}</Alert> : null}
       <form action={acceptInvite}>
@@ -114,6 +124,9 @@ export default async function InvitePage({ params, searchParams }: PageProps): P
           Create account
         </Button>
       </form>
+      <AuthNote>
+        Already set up? <AuthLink href="/login">Sign in →</AuthLink>
+      </AuthNote>
     </AuthScreen>
   );
 }

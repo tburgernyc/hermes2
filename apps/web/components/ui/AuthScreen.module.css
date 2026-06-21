@@ -1,36 +1,172 @@
+/* Two-pane auth shell (ported from design/ui_kits/console). Theme-aware via the --studio-* / --glass-*
+ * / --neu-* tokens, which the [data-theme="command"] block in globals.css overrides on this subtree. */
 .screen {
+  position: relative;
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: var(--space-12) var(--space-4);
+  grid-template-columns: 1fr;
   color: var(--studio-ink);
   font-family: var(--font-sans);
+  background: var(--studio-bg);
+}
+@media (min-width: 920px) {
+  .screen {
+    grid-template-columns: 1.05fr 0.95fr;
+  }
+}
+
+.aside {
+  position: relative;
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-12);
+  border-right: 1px solid var(--studio-line);
+  overflow: hidden;
+}
+@media (min-width: 920px) {
+  .aside {
+    display: flex;
+  }
+}
+.aside::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background:
-    radial-gradient(1000px 520px at 82% -10%, rgba(120, 140, 255, 0.07), transparent 60%),
-    radial-gradient(760px 420px at -8% 4%, rgba(96, 214, 230, 0.06), transparent 55%),
-    var(--studio-bg);
+    radial-gradient(700px 500px at 20% 10%, var(--glow-primary), transparent 60%),
+    radial-gradient(600px 500px at 80% 100%, var(--glow-signal), transparent 60%);
+  pointer-events: none;
+}
+.asideGrid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.asideInner {
+  position: relative;
+}
+.brandLink {
+  display: inline-flex;
+  text-decoration: none;
+}
+.quote {
+  position: relative;
+  max-width: 18ch;
+  margin: var(--space-8) 0;
+  font-size: clamp(1.6rem, 2.6vw, 2.2rem);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--studio-ink);
+}
+.asideMeta {
+  position: relative;
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.surfaceTag {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--studio-muted);
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius-pill);
+  padding: 0.25rem 0.65rem;
+}
+
+.main {
+  display: grid;
+  place-items: center;
+  padding: var(--space-12) var(--space-6);
 }
 .card {
   width: 100%;
   max-width: 26rem;
-  background: var(--glass-bg-strong);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
-  box-shadow:
-    var(--glass-shadow),
-    0 0 0 1px rgba(16, 22, 29, 0.03);
-  padding: var(--space-8);
+}
+.badgeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--studio-muted);
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius-pill);
+  padding: 0.25rem 0.65rem;
 }
 .title {
-  font-size: 1.55rem;
+  font-size: 1.7rem;
   font-weight: 300;
   letter-spacing: -0.02em;
-  margin: var(--space-4) 0 var(--space-2);
+  margin: var(--space-6) 0 var(--space-2);
 }
 .subtitle {
   color: var(--studio-muted);
   margin: 0 0 var(--space-6);
   font-size: 0.98rem;
+  line-height: 1.5;
+}
+.note {
+  margin: var(--space-6) 0 0;
+  font-size: 0.88rem;
+  color: var(--studio-muted);
+}
+.linkish {
+  color: var(--link);
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: none;
+}
+.linkish:hover {
+  text-decoration: underline;
+}
+.crumb {
+  color: var(--studio-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.crumb:hover {
+  color: var(--studio-primary);
+}
+.iconBtn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--neu-bg-control);
+  box-shadow: var(--neu-shadow-sm-control);
+  color: var(--studio-muted);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    box-shadow 0.18s var(--ease-spring),
+    transform 0.18s var(--ease-spring);
+}
+.iconBtn:hover {
+  color: var(--studio-primary);
+  transform: translateY(-1px);
+}
+.iconBtn:active {
+  box-shadow: var(--neu-inset-control);
+  transform: translateY(0);
 }

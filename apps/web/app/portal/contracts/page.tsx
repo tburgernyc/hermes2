@@ -42,7 +42,10 @@ export default async function MySubcontractsPage(): Promise<JSX.Element> {
 
   return (
     <main>
-      <PageHeader title="My Subcontracts" />
+      <PageHeader
+        title="My subcontracts"
+        lede="Contracts awarded to you, with execution and e-signature status."
+      />
       {rows.length === 0 ? (
         <p className={c.empty} data-testid="contracts-empty">
           You have no subcontracts yet.
@@ -64,12 +67,16 @@ export default async function MySubcontractsPage(): Promise<JSX.Element> {
                 <tr key={row.id}>
                   <td>{row.solicitationTitle ?? "—"}</td>
                   <td>{row.contractType}</td>
-                  <td>{formatUsd(row.totalValue)}</td>
+                  <td className={c.tableNum}>{formatUsd(row.totalValue)}</td>
                   <td>
-                    <Badge>{humanizeStatus(row.status)}</Badge>
+                    <Badge tone={row.status === "ACTIVE" ? "success" : "info"}>
+                      {humanizeStatus(row.status)}
+                    </Badge>
                   </td>
                   <td>
-                    <Badge tone="neutral">{humanizeStatus(row.esignStatus)}</Badge>
+                    <Badge tone={row.esignStatus === "SIGNED" ? "success" : "warn"}>
+                      {humanizeStatus(row.esignStatus)}
+                    </Badge>
                   </td>
                 </tr>
               ))}

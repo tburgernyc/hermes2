@@ -8,6 +8,8 @@ import c from "@/components/ui/console.module.css";
 import { requireVendorWithVendorId } from "@/lib/auth-guard";
 import { humanizeStatus } from "@/lib/portal";
 
+import { UploadDocument } from "./UploadDocument";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs"; // getStorage() (Tigris/AWS SDK) is Node-only
 
@@ -61,7 +63,12 @@ export default async function MyDocumentsPage(): Promise<JSX.Element> {
 
   return (
     <main>
-      <PageHeader title="My Documents" />
+      <PageHeader
+        title="Compliance documents"
+        lede="Drop a document to begin format validation. Download links are signed and time-limited."
+      />
+
+      <UploadDocument />
       {withUrls.length === 0 ? (
         <p className={c.empty} data-testid="documents-empty">
           You have no documents yet.

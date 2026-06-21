@@ -16,7 +16,21 @@
   --color-accent-surface: #eaf1fb;
   --color-warn-surface: #fff4e5;
   --color-warn-ink: #7a4b00; /* placeholder badge text on warn surface (AA) */
+  --color-warn-border: #f0c98a;
   --color-focus: #1457c9;
+
+  /* Status-badge tones (Slice 4) — tokenized so the dark Command theme can override them (see the
+   * [data-theme="command"] block). Light values match the original Phase-9 chip palette; ink-on-surface
+   * holds WCAG 2.1 AA in both themes. */
+  --tone-info-surface: #eaf1fb;
+  --tone-info-border: #b9d0f0;
+  --tone-info-ink: #0b2e59;
+  --tone-success-surface: #e8f6ec;
+  --tone-success-border: #aedcbb;
+  --tone-success-ink: #14532d;
+  --tone-danger-surface: #fdecec;
+  --tone-danger-border: #f3b6b6;
+  --tone-danger-ink: #7a1a1a;
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -56,6 +70,93 @@
 
   --radius-pill: 999px;
   --radius-xl: 22px;
+
+  /* ---- UI-kit auth-shell additions (Slice 1) -------------------------------------------------------
+   * Tokens the two-pane auth screens need, plus the navy ramp behind the primary button. These LIGHT
+   * values are the defaults; the [data-theme="command"] block below overrides them on any subtree that
+   * carries that attribute (currently only the auth screens — globalized in a later slice). Purely
+   * additive: every existing page keeps its exact look because each light value equals the value that
+   * was previously hard-coded. */
+  --studio-primary-hover: #0a2547;
+  --link: #1457c9; /* AA on studio-bg */
+  --navy-900: #0a2547;
+  --navy-700: #154a86;
+  --navy-600: #1b5495;
+  --control-bg: var(--glass-bg);
+  --control-border: var(--studio-line);
+  --grid-line: rgba(16, 22, 29, 0.05);
+  --glow-primary: rgba(37, 99, 235, 0.18);
+  --glow-signal: rgba(16, 185, 129, 0.16);
+  --neu-bg-control: #eef1f6;
+  --neu-shadow-sm-control: 3px 3px 8px rgba(16, 22, 29, 0.1), -3px -3px 8px rgba(255, 255, 255, 0.92);
+  --neu-inset-control: inset 3px 3px 8px rgba(16, 22, 29, 0.12),
+    inset -3px -3px 8px rgba(255, 255, 255, 0.9);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ---- UI-kit console-chrome additions (Slice 2) --------------------------------------------------
+   * Tokens the admin console chrome (the glass nav pill + page header + the "Admin · HITL" signal tag)
+   * needs. LIGHT defaults here; the [data-theme="command"] block below overrides the theme-dependent
+   * ones. Purely additive — no existing token changes, so every shipped page keeps its exact look. */
+  --space-5: 1.25rem;
+  --weight-display: 300; /* the thin display weight for page titles + stat values */
+  --inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.6); /* top light-catch on the glass pill */
+  --signal: #047857; /* emerald-700 — AA on --signal-soft and on studio-bg/glass */
+  --signal-line: rgba(4, 120, 87, 0.3);
+  --signal-soft: rgba(4, 120, 87, 0.08);
+}
+
+/* Command (dark) theme — overrides apply ONLY within a subtree carrying [data-theme="command"]
+ * (Slice 1: the auth screens). Values ported from design/tokens/theme-command.css; every text/surface
+ * pair is chosen for WCAG 2.1 AA on the dark ground. */
+[data-theme="command"] {
+  --studio-bg: #09090b;
+  --studio-bg-tint: #111114;
+  --studio-ink: #fafafa;
+  --studio-muted: #a1a1aa;
+  --studio-line: #27272a;
+  --studio-primary: #3b82f6;
+  --studio-primary-hover: #60a5fa;
+
+  --glass-bg: rgba(24, 24, 27, 0.55);
+  --glass-bg-strong: rgba(24, 24, 27, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 48px -18px rgba(0, 0, 0, 0.8);
+  --iris-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35), 0 28px 70px -26px rgba(37, 99, 235, 0.55);
+
+  --link: #60a5fa;
+  --navy-900: #1e3a8a;
+  --navy-700: #3b82f6;
+  --navy-600: #60a5fa;
+
+  --control-bg: rgba(22, 30, 26, 0.6);
+  --control-border: rgba(52, 211, 153, 0.22);
+
+  --grid-line: rgba(255, 255, 255, 0.05);
+
+  --neu-bg-control: #151a17;
+  --neu-shadow-sm-control: 3px 3px 9px rgba(0, 0, 0, 0.66), -3px -3px 9px rgba(52, 211, 153, 0.08);
+  --neu-inset-control: inset 3px 3px 9px rgba(0, 0, 0, 0.7),
+    inset -3px -3px 9px rgba(52, 211, 153, 0.08);
+
+  /* Console-chrome (Slice 2) — emerald signal + glass top-edge on the dark ground (AA). */
+  --inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --signal: #34d399; /* emerald-400 — AA on the dark signal-soft / glass pill */
+  --signal-line: rgba(52, 211, 153, 0.32);
+  --signal-soft: rgba(52, 211, 153, 0.1);
+
+  /* Status-badge tones on the dark ground (Slice 4) — translucent fills + light ink (AA on glass). */
+  --color-warn-surface: rgba(245, 158, 11, 0.14);
+  --color-warn-ink: #fcd9a3;
+  --color-warn-border: rgba(245, 158, 11, 0.4);
+  --tone-info-surface: rgba(59, 130, 246, 0.16);
+  --tone-info-border: rgba(59, 130, 246, 0.42);
+  --tone-info-ink: #bfdbfe;
+  --tone-success-surface: rgba(52, 211, 153, 0.16);
+  --tone-success-border: rgba(52, 211, 153, 0.42);
+  --tone-success-ink: #a7f3d0;
+  --tone-danger-surface: rgba(248, 113, 113, 0.16);
+  --tone-danger-border: rgba(248, 113, 113, 0.42);
+  --tone-danger-ink: #fecaca;
 }
 
 *,

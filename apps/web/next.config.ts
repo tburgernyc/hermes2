@@ -55,6 +55,12 @@ const nextConfig: NextConfig = {
         destination: "https://burgergov.com/:path*",
         permanent: true,
       },
+      // Unified-login IA (Slice 2): there is ONE role-routed sign-in at /login. Keep bookmarked/external
+      // links to the old split surfaces working by redirecting the legacy paths here. (URL hash entries
+      // like #vendor-login can't be server-redirected — fragments never reach the server — but the marketing
+      // CTAs now all point at /login directly.) Not permanent: this is an app routing choice that may evolve.
+      { source: "/vendor-login", destination: "/login", permanent: false },
+      { source: "/admin-login", destination: "/login", permanent: false },
     ];
   },
 };

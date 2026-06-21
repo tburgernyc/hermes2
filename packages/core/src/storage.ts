@@ -112,3 +112,13 @@ export function vendorQuoteDocumentKey(
 ): string {
   return `orgs/${orgId}/vendors/${vendorId}/quotes/${quoteId}.${ext}`;
 }
+
+/**
+ * Org + vendor-scoped object key for a STANDALONE vendor compliance document (Slice 5) — the sibling of
+ * vendorQuoteDocumentKey for a document NOT attached to a quote. Keyed by vendorId so every object a
+ * vendor writes lives under its own prefix, mirroring the per-vendor RLS isolation. The docId is generated
+ * server-side (never user-controlled).
+ */
+export function vendorDocumentKey(orgId: string, vendorId: string, docId: string, ext: string): string {
+  return `orgs/${orgId}/vendors/${vendorId}/documents/${docId}.${ext}`;
+}

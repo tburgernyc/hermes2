@@ -28,6 +28,7 @@ export default async function OpenRfqsPage(): Promise<JSX.Element> {
         title: solicitations.title,
         agency: solicitations.agency,
         naicsCode: solicitations.naicsCode,
+        contractType: solicitations.contractType,
         responseDeadline: solicitations.responseDeadline,
       })
       .from(solicitations)
@@ -53,6 +54,7 @@ export default async function OpenRfqsPage(): Promise<JSX.Element> {
                 <th>Title</th>
                 <th>Agency</th>
                 <th>NAICS</th>
+                <th>Type</th>
                 <th>Response deadline</th>
                 <th>Action</th>
               </tr>
@@ -62,8 +64,11 @@ export default async function OpenRfqsPage(): Promise<JSX.Element> {
                 <tr key={s.id}>
                   <td>{s.title}</td>
                   <td>{s.agency ?? "—"}</td>
-                  <td>{s.naicsCode ?? "—"}</td>
-                  <td>{s.responseDeadline ? s.responseDeadline.toISOString().slice(0, 10) : "—"}</td>
+                  <td className={c.tableNum}>{s.naicsCode ?? "—"}</td>
+                  <td>{s.contractType ?? "—"}</td>
+                  <td className={c.tableNum}>
+                    {s.responseDeadline ? s.responseDeadline.toISOString().slice(0, 10) : "—"}
+                  </td>
                   <td>
                     <Link href={`/portal/solicitations/${s.id}/quote`}>Submit quote</Link>
                   </td>

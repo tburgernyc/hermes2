@@ -1,0 +1,68 @@
+/*
+ * Release-gate styles (Slice 3). CSP-strict: the progress is a class-toggled @keyframes — there is NO
+ * inline style and NO per-frame JS. All color/spacing from design tokens. Ported from the kit's
+ * .gateBtn/.gateFill/.gateLabel, hardened for keyboard focus + reduced motion.
+ */
+.gateBtn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.4rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--signal-line);
+  background: var(--glass-bg);
+  color: var(--studio-ink);
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none; /* the hold owns the gesture — don't let touch scroll/long-press interrupt it */
+}
+.gateBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.gateBtn:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+.gateFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: var(--signal-soft);
+  border-right: 2px solid var(--signal);
+  pointer-events: none;
+}
+/* Holding runs the fill 0→100% over the 1.5s hold window; releasing removes the class and it snaps back. */
+.holding .gateFill {
+  animation: gateFill 1.5s linear forwards;
+}
+@keyframes gateFill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.gateLabel {
+  position: relative;
+}
+
+/* Reduced motion: no animated sweep — a static "armed" cue while holding. The 1.5s timer still drives
+ * completion, so the hold remains fully functional. */
+@media (prefers-reduced-motion: reduce) {
+  .holding .gateFill {
+    animation: none;
+    transform: scaleX(1);
+    opacity: 0.4;
+  }
+}

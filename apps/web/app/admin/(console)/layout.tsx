@@ -1,28 +1,42 @@
 import type { JSX, ReactNode } from "react";
 
-import { AppNav } from "@/components/ui/console";
-
-import styles from "./console-shell.module.css";
+import { auth } from "@/auth";
+import { ConsoleShell } from "@/components/ui/ConsoleShell";
 
 const ADMIN_NAV = [
-  { href: "/admin", label: "Home" },
+  { href: "/admin", label: "Console" },
   { href: "/admin/solicitations", label: "Solicitations" },
-  { href: "/admin/prospects", label: "Prospects" },
   { href: "/admin/approvals", label: "Approvals" },
+  { href: "/admin/prospects", label: "Prospects" },
   { href: "/admin/vendors", label: "Vendors" },
   { href: "/admin/inquiries", label: "Inquiries" },
 ] as const;
 
 /**
- * Admin CONSOLE layout — studio background + the glass AppNav. Scoped to the (console) route group so it
- * wraps every operator page but NOT the /admin/totp auth pages (which sit outside the group and render
- * their own full-screen AuthScreen). Presentational only; middleware + each page's requireAdmin gate.
+ * Admin CONSOLE layout — the glass nav pill + ambient studio/command background (ConsoleShell), scoped to
+ * the (console) route group so it wraps every operator page but NOT the /admin/totp auth pages (which sit
+ * outside the group and render their own full-screen AuthScreen). The chrome is presentational; middleware
+ * + each page's requireAdmin enforce access. The operator identity in the nav is resolved from the session
+ * HERE on the server — never client-supplied (§7).
  */
-export default function ConsoleLayout({ children }: { children: ReactNode }): JSX.Element {
+export default async function ConsoleLayout({
+  children,
+}: {
+  children: ReactNode;
+}): Promise<JSX.Element> {
+  const session = await auth();
+  const operatorName = session?.user?.email ?? "Operator";
+
   return (
-    <div className={styles.shell}>
-      <AppNav links={ADMIN_NAV} label="Admin" testId="admin-nav" homeHref="/admin" />
-      <div className={styles.content}>{children}</div>
-    </div>
+    <ConsoleShell
+      navLinks={ADMIN_NAV}
+      navLabel="Admin"
+      surfaceTag="Admin · HITL"
+      operatorName={operatorName}
+      homeHref="/admin"
+      testId="admin-nav"
+    >
+      {children}
+    </ConsoleShell>
   );
 }

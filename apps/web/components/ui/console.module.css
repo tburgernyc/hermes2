@@ -142,24 +142,24 @@
   color: var(--studio-muted);
 }
 .toneInfo {
-  background: #eaf1fb;
-  border-color: #b9d0f0;
-  color: #0b2e59;
+  background: var(--tone-info-surface);
+  border-color: var(--tone-info-border);
+  color: var(--tone-info-ink);
 }
 .toneSuccess {
-  background: #e8f6ec;
-  border-color: #aedcbb;
-  color: #14532d;
+  background: var(--tone-success-surface);
+  border-color: var(--tone-success-border);
+  color: var(--tone-success-ink);
 }
 .toneWarn {
   background: var(--color-warn-surface);
-  border-color: #f0c98a;
+  border-color: var(--color-warn-border);
   color: var(--color-warn-ink);
 }
 .toneDanger {
-  background: #fdecec;
-  border-color: #f3b6b6;
-  color: #7a1a1a;
+  background: var(--tone-danger-surface);
+  border-color: var(--tone-danger-border);
+  color: var(--tone-danger-ink);
 }
 
 /* ---- Stat (daily brief) ---- */
@@ -340,6 +340,78 @@
   box-shadow:
     var(--glass-shadow),
     0 0 0 1px rgba(16, 22, 29, 0.03);
+}
+
+/* ---- Split panes + doc lines (approvals detail; ported 1:1 from the console kit) ---- */
+.split {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: 1fr;
+  margin-bottom: var(--space-8);
+}
+@media (min-width: 880px) {
+  .split {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.pane {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  padding: var(--space-6);
+}
+.paneLabel {
+  display: block;
+  margin-bottom: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--studio-muted);
+}
+.docLine {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--studio-line);
+  color: var(--studio-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.docLine:last-child {
+  border-bottom: none;
+}
+.docLine.flag {
+  color: var(--color-warn-ink);
+}
+
+/* ---- Kit vocabulary: mono meta, hoverable cards, numeric cells, table footer (Slice 4) ---- */
+.metaMono {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--studio-muted);
+}
+.hoverable {
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.hoverable:hover {
+  border-color: var(--signal-line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hoverable {
+    transition: none;
+  }
+}
+.tableNum {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tfoot td {
+  border-top: 2px solid var(--studio-line);
+  font-weight: 700;
+  color: var(--studio-ink);
 }
 
 /* ---- App shell (portal layout) ---- */

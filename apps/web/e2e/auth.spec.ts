@@ -20,7 +20,10 @@ test("admin signs in with password + TOTP and reaches /admin", async ({ page }) 
   await login(page, E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD);
   // Correct password → routed to the TOTP step-up page (factor not yet satisfied).
   await page.waitForURL(/\/admin\/totp$/);
-  await page.fill('input[name="code"]', generateTotpCode(E2E_ADMIN_TOTP_SECRET));
+  const code = generateTotpCode(E2E_ADMIN_TOTP_SECRET);
+  for (let i = 0; i < code.length; i += 1) {
+    await page.locator(`[data-testid="totp-cell-${i}"]`).fill(code[i] ?? "");
+  }
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/admin$/);
   await expect(page.getByRole("heading", { name: "Admin Console" })).toBeVisible();

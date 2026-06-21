@@ -6,9 +6,9 @@ import { encryptSecret, generateTotpSecret, setTotpSecretCiphertext, totpKeyUri 
 
 import { auth } from "@/auth";
 import { Alert } from "@/components/ui/Alert";
-import { AuthScreen } from "@/components/ui/AuthScreen";
+import { AuthLink, AuthNote, AuthScreen } from "@/components/ui/AuthScreen";
 import { Button } from "@/components/ui/Button";
-import { Field } from "@/components/ui/Field";
+import { TotpInput } from "@/components/ui/TotpInput";
 
 import { confirmEnrollAction } from "./actions";
 import styles from "./enroll.module.css";
@@ -35,11 +35,14 @@ export default async function TotpEnrollPage({
   const { error } = await searchParams;
 
   return (
-    <AuthScreen title="Set up two-factor authentication">
-      <p className={styles.hint}>
-        Scan this QR code with your authenticator app, then enter the current code to confirm.
-      </p>
-      <div className={styles.qr}>
+    <AuthScreen
+      badge="Step 1 · Set up 2FA"
+      title="Set up two-factor authentication"
+      subtitle="Scan this QR code with your authenticator app, then enter the current code to confirm."
+      quote="Two factors, every session. The secret is yours alone — we store only its encrypted form."
+      asideTag="TOTP enrollment"
+    >
+      <div className={styles.qrFrame}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={qrDataUrl} alt="TOTP enrollment QR code" width={180} height={180} />
       </div>
@@ -48,11 +51,14 @@ export default async function TotpEnrollPage({
       </p>
       {error ? <Alert>That code didn&apos;t match. Scan again and retry.</Alert> : null}
       <form action={confirmEnrollAction}>
-        <Field label="Code" name="code" inputMode="numeric" autoComplete="one-time-code" required />
+        <TotpInput name="code" label="Confirmation code" />
         <Button type="submit" block>
           Confirm
         </Button>
       </form>
+      <AuthNote>
+        Already enrolled? <AuthLink href="/admin/totp">Enter your code →</AuthLink>
+      </AuthNote>
     </AuthScreen>
   );
 }

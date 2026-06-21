@@ -87,23 +87,24 @@ export default async function MyQuoteDetail({
         title={quote.solicitationTitle}
         back={
           <Link href="/portal/quotes" className={c.crumb}>
-            ← My Quotes
+            ← My quotes
           </Link>
         }
         lede={`Notice ${quote.noticeId}`}
+        actions={
+          <span data-testid="quote-status">
+            <Badge tone={quote.status === "SUBMITTED" ? "success" : "info"}>
+              {humanizeStatus(quote.status)}
+            </Badge>
+          </span>
+        }
       />
 
       <Card>
         <ul className={c.list}>
           <li className={c.rowBetween}>
-            <span className={c.meta}>Status</span>
-            <span data-testid="quote-status">
-              <Badge>{humanizeStatus(quote.status)}</Badge>
-            </span>
-          </li>
-          <li className={c.rowBetween}>
             <span className={c.meta}>Total price</span>
-            <span>{formatUsd(quote.totalPrice)}</span>
+            <span className={c.tableNum}>{formatUsd(quote.totalPrice)}</span>
           </li>
           <li className={c.rowBetween}>
             <span className={c.meta}>Period of performance</span>
@@ -144,12 +145,18 @@ export default async function MyQuoteDetail({
                   <tr key={l.id}>
                     <td>{humanizeStatus(l.costType)}</td>
                     <td>{l.description}</td>
-                    <td>{Number(l.quantity)}</td>
-                    <td>{formatUsd(l.unitRate)}</td>
-                    <td>{formatUsd(l.extendedAmount)}</td>
+                    <td className={c.tableNum}>{Number(l.quantity)}</td>
+                    <td className={c.tableNum}>{formatUsd(l.unitRate)}</td>
+                    <td className={c.tableNum}>{formatUsd(l.extendedAmount)}</td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className={c.tfoot}>
+                  <td colSpan={4}>Total</td>
+                  <td className={c.tableNum}>{formatUsd(quote.totalPrice)}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

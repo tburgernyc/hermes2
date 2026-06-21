@@ -25,8 +25,9 @@ export default async function MyQuotesPage(): Promise<JSX.Element> {
         id: vendorQuotes.id,
         status: vendorQuotes.status,
         totalPrice: vendorQuotes.totalPrice,
+        createdAt: vendorQuotes.createdAt,
         solicitationTitle: solicitations.title,
-        noticeId: solicitations.noticeId,
+        agency: solicitations.agency,
       })
       .from(vendorQuotes)
       .innerJoin(
@@ -42,7 +43,7 @@ export default async function MyQuotesPage(): Promise<JSX.Element> {
 
   return (
     <main>
-      <PageHeader title="My Quotes" />
+      <PageHeader title="My quotes" lede="Quotes you've submitted, with their current review status." />
       {rows.length === 0 ? (
         <p className={c.empty} data-testid="quotes-empty">
           You have not submitted any quotes yet.
@@ -53,8 +54,11 @@ export default async function MyQuotesPage(): Promise<JSX.Element> {
             <thead>
               <tr>
                 <th>Solicitation</th>
-                <th>Status</th>
+                <th>Agency</th>
                 <th>Total</th>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -63,10 +67,17 @@ export default async function MyQuotesPage(): Promise<JSX.Element> {
                   <td>
                     <Link href={`/portal/quotes/${q.id}`}>{q.solicitationTitle}</Link>
                   </td>
+                  <td>{q.agency ?? "—"}</td>
+                  <td className={c.tableNum}>{formatUsd(q.totalPrice)}</td>
+                  <td className={c.tableNum}>{q.createdAt.toISOString().slice(0, 10)}</td>
                   <td>
-                    <Badge>{humanizeStatus(q.status)}</Badge>
+                    <Badge tone={q.status === "SUBMITTED" ? "success" : "info"}>
+                      {humanizeStatus(q.status)}
+                    </Badge>
                   </td>
-                  <td>{formatUsd(q.totalPrice)}</td>
+                  <td>
+                    <Link href={`/portal/quotes/${q.id}`}>View</Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

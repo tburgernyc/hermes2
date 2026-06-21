@@ -41,6 +41,12 @@ export function SiteFooter(): JSX.Element {
                 <Link href={link.href}>{link.label}</Link>
               </li>
             ))}
+            <li>
+              <Link href="/login">Subcontractor portal</Link>
+            </li>
+            <li>
+              <Link href="/login">Admin console</Link>
+            </li>
           </ul>
         </nav>
 

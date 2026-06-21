@@ -1,0 +1,115 @@
+/*
+ * Approvals-detail right pane + release-gate card (Slice 3). All color/spacing from design tokens — no
+ * hard-coded hex. Presentation only; behavior lives in ApprovalCohort.tsx.
+ */
+.recipients {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.recipient {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--studio-line);
+}
+.recipient:last-child {
+  border-bottom: none;
+}
+.recipientTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.recipientName {
+  color: var(--studio-ink);
+  font-size: 0.98rem;
+}
+.badges {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.caps {
+  margin: var(--space-2) 0 0;
+  color: var(--studio-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.capsLabel {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.flagRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+.rowActions {
+  margin-top: var(--space-3);
+}
+
+/* ---- Release-gate card ---- */
+.gateCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding: var(--space-6);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+}
+.gateText {
+  flex: 1 1 18rem;
+}
+.gateHead {
+  display: block;
+  color: var(--studio-ink);
+  font-size: 1.02rem;
+}
+.gateSub {
+  margin: var(--space-2) 0 0;
+  color: var(--studio-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.gateHelp {
+  margin: var(--space-2) 0 0;
+  color: var(--color-warn-ink);
+  font-size: 0.85rem;
+}
+
+.statusMsg {
+  margin-top: var(--space-4);
+  min-height: 1.25rem;
+  color: var(--studio-ink);
+  font-size: 0.9rem;
+}
+.empty {
+  color: var(--studio-muted);
+  font-size: 0.9rem;
+}
+
+/* Screen-reader-only utility (visually hidden, still in the a11y tree). */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

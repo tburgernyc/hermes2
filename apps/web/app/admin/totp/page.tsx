@@ -3,9 +3,9 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { Alert } from "@/components/ui/Alert";
-import { AuthScreen } from "@/components/ui/AuthScreen";
+import { AuthLink, AuthNote, AuthScreen } from "@/components/ui/AuthScreen";
 import { Button } from "@/components/ui/Button";
-import { Field } from "@/components/ui/Field";
+import { TotpInput } from "@/components/ui/TotpInput";
 
 import { verifyTotpAction } from "./actions";
 
@@ -24,8 +24,11 @@ export default async function TotpStepUpPage({
   const { error } = await searchParams;
   return (
     <AuthScreen
-      title="Two-factor verification"
-      subtitle="Enter the 6-digit code from your authenticator app."
+      badge="Step 2 · One-time passcode"
+      title="Enter your code"
+      subtitle="Enter the 6-digit code from your authenticator app, then select Verify."
+      quote="Zero-trust access. Six digits stand between intent and the console."
+      asideTag="TOTP verification"
     >
       {error === "throttled" ? (
         <Alert>Too many attempts. Please wait a few minutes and try again.</Alert>
@@ -33,11 +36,14 @@ export default async function TotpStepUpPage({
         <Alert>Invalid code. Try again.</Alert>
       ) : null}
       <form action={verifyTotpAction}>
-        <Field label="Code" name="code" inputMode="numeric" autoComplete="one-time-code" required />
+        <TotpInput name="code" />
         <Button type="submit" block>
           Verify
         </Button>
       </form>
+      <AuthNote>
+        First time? <AuthLink href="/admin/totp/enroll">Set up two-factor →</AuthLink>
+      </AuthNote>
     </AuthScreen>
   );
 }

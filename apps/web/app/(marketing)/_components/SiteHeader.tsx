@@ -36,6 +36,9 @@ export function SiteHeader(): JSX.Element {
               {link.label}
             </Link>
           ))}
+          <Link href="/login" className={styles.navLink}>
+            Subcontractor login
+          </Link>
           <Cta href="/contact?intent=teaming">Partner with us</Cta>
         </nav>
       </div>

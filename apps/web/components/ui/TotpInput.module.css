@@ -1,0 +1,29 @@
+.wrap {
+  margin: 0 0 var(--space-4);
+}
+.label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--studio-ink);
+  margin-bottom: var(--space-2);
+}
+.row {
+  display: flex;
+  gap: var(--space-2);
+}
+.cell {
+  width: 100%;
+  aspect-ratio: 1;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  color: var(--studio-ink);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius);
+}
+.cell:focus-visible {
+  border-color: var(--studio-primary);
+  outline: none;
+}

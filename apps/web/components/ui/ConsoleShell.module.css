@@ -1,0 +1,169 @@
+/*
+ * Console chrome (Slice 2) — the authenticated admin shell: a sticky glass nav PILL over an ambient
+ * mesh-glow + HUD-grid background, with a 1080px content measure. Ported 1:1 from design/ui_kits/console
+ * (console.css). Theme-aware: every value reads a DS token, and the [data-theme="command"] overrides in
+ * globals.css flip the whole subtree to the dark Command palette. No inline styles (strict CSP).
+ */
+
+.shell {
+  position: relative;
+  min-height: 100vh;
+  color: var(--studio-ink);
+  font-family: var(--font-sans);
+  background: var(--studio-bg);
+  overflow-x: hidden;
+}
+
+/* Ambient background — fixed, behind everything, never interactive. Two soft brand/signal glows + a
+ * faint grid masked to fade off the content column (so it reads as HUD chrome, not a flat fill). */
+.bgMesh {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 600px at 86% -8%, var(--glow-primary), transparent 60%),
+    radial-gradient(800px 500px at -6% 6%, var(--glow-signal), transparent 55%);
+}
+.bgGrid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 52px 52px;
+  -webkit-mask-image: radial-gradient(900px 600px at 80% 0%, #000, transparent 75%);
+  mask-image: radial-gradient(900px 600px at 80% 0%, #000, transparent 75%);
+}
+
+/* ---- Nav (sticky glass pill) ---- */
+.navHeader {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: var(--space-3) var(--space-4);
+}
+.navInner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0.55rem 0.7rem 0.55rem 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--glass-shadow), var(--inset-highlight);
+}
+.brandLink {
+  display: inline-flex;
+  text-decoration: none;
+  color: var(--studio-ink);
+}
+.surfaceTag {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--signal);
+  border: 1px solid var(--signal-line);
+  background: var(--signal-soft);
+  border-radius: var(--radius-pill);
+  padding: 0.2rem 0.6rem;
+}
+.nav {
+  display: flex;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.navLink {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--studio-muted);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.navLink:hover,
+.active {
+  color: var(--studio-ink);
+}
+.navSpacer {
+  flex: 1;
+}
+
+/* Theme toggle — neumorphic icon button (mirrors the auth-shell control). */
+.iconBtn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--neu-bg-control);
+  box-shadow: var(--neu-shadow-sm-control);
+  color: var(--studio-muted);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    box-shadow 0.18s var(--ease-spring),
+    transform 0.18s var(--ease-spring);
+}
+.iconBtn:hover {
+  color: var(--studio-primary);
+  transform: translateY(-1px);
+}
+.iconBtn:active {
+  box-shadow: var(--neu-inset-control);
+  transform: translateY(0);
+}
+
+.role {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  color: var(--studio-muted);
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--studio-line);
+  border-radius: var(--radius-pill);
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signoutForm {
+  display: inline-flex;
+  margin: 0;
+}
+.signout {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--studio-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.signout:hover {
+  color: var(--studio-primary);
+}
+
+/* ---- Content measure ---- */
+.content {
+  position: relative;
+  z-index: 1;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) var(--space-24);
+}

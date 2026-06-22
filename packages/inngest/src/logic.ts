@@ -172,20 +172,22 @@ function samSetAsideFilter(): string[] {
 }
 
 /**
- * Build the SAM.gov Opportunities API v2 search URL. PURE + exported so it is unit-testable without a
- * network. `postedFrom`/`postedTo` are REQUIRED by the API (a missing window is a 400), so we always
- * include a bounded recent window (≤ 1 year). Set-asides are NOT filtered by default — the firm wants to
- * see Total-Small-Business AND unrestricted notices and screen them at triage (CLAUDE.md §6.7).
+ * Build the SAM.gov Opportunities API v2 search URL for ONE NAICS code. PURE + exported so it is
+ * unit-testable without a network. `postedFrom`/`postedTo` are REQUIRED by the API (a missing window is a
+ * 400), so we always include a bounded recent window (≤ 1 year). `ncode` is SINGLE-VALUED in SAM's API — a
+ * comma-joined list silently returns zero results — so the ingest queries once PER NAICS and merges (see
+ * ingestSolicitations). Set-asides are NOT filtered by default: the firm wants to see Total-Small-Business
+ * AND unrestricted notices and screen them at triage (CLAUDE.md §6.7).
  */
 export function buildSamSearchUrl(
-  naics: readonly string[],
+  naicsCode: string,
   apiKey: string,
   opts: { now: Date; windowDays: number; setAside?: readonly string[] },
 ): string {
   const postedTo = formatSamDate(opts.now);
   const postedFrom = formatSamDate(new Date(opts.now.getTime() - opts.windowDays * 86_400_000));
   const params = new URLSearchParams({
-    ncode: naics.join(","),
+    ncode: naicsCode,
     postedFrom,
     postedTo,
     limit: "100",
@@ -226,22 +228,38 @@ export async function ingestSolicitations(
   const configured = org?.directives?.naicsCodes;
   const naics = configured && configured.length > 0 ? configured : [...DEFAULT_NAICS];
 
-  const url = buildSamSearchUrl(naics, apiKey, {
-    now: new Date(),
-    windowDays: samWindowDays(),
-    setAside: samSetAsideFilter(),
-  });
-
-  const { bytes } = await deps.fetchDoc(url, { allowedTypes: ["application/json"] });
-
-  let notices: NoticeShape[] = [];
-  try {
-    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as { opportunitiesData?: unknown };
-    if (Array.isArray(parsed?.opportunitiesData)) notices = parsed.opportunitiesData as NoticeShape[];
-  } catch {
-    // A malformed SAM payload yields zero ingested rows (fail closed — never a partial bad insert).
-    return [];
+  // SAM's `ncode` is single-valued — a comma-joined list returns zero. Query ONCE PER NAICS and merge,
+  // deduping by noticeId (one notice can carry a NAICS we query under more than one code). A single
+  // NAICS fetch error is tolerated so one flaky/empty code never drops the others, BUT if EVERY code
+  // errors we rethrow — never report a faked/empty success when SAM was actually unreachable (§1).
+  const now = new Date();
+  const windowDays = samWindowDays();
+  const setAside = samSetAsideFilter();
+  const byNotice = new Map<string, NoticeShape>();
+  let fetchErrors = 0;
+  let firstError: unknown = null;
+  for (const code of naics) {
+    const url = buildSamSearchUrl(code, apiKey, { now, windowDays, setAside });
+    try {
+      const { bytes } = await deps.fetchDoc(url, { allowedTypes: ["application/json"] });
+      const parsed = JSON.parse(new TextDecoder().decode(bytes)) as { opportunitiesData?: unknown };
+      if (Array.isArray(parsed?.opportunitiesData)) {
+        for (const n of parsed.opportunitiesData as NoticeShape[]) {
+          const noticeId = asString(n.noticeId);
+          if (noticeId && !byNotice.has(noticeId)) byNotice.set(noticeId, n);
+        }
+      }
+    } catch (err) {
+      // Malformed payload OR a fetch failure for THIS code — count it; continue to the next code.
+      fetchErrors += 1;
+      firstError ??= err;
+    }
   }
+  if (fetchErrors === naics.length && firstError) {
+    // Every NAICS query failed — surface it (the cron retries) rather than committing a false empty run.
+    throw firstError instanceof Error ? firstError : new Error(String(firstError));
+  }
+  const notices = [...byNotice.values()];
 
   const ingested: IngestedSolicitation[] = [];
   for (const n of notices) {

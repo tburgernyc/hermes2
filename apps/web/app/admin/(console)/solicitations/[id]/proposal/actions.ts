@@ -24,6 +24,7 @@ import { readyForLiveSubmission } from "@hermes/ai";
 import { writeAudit } from "@hermes/inngest";
 
 import { requireAdmin } from "@/lib/auth-guard";
+import { isCounselAutofill, isSubmitTestMode } from "@/lib/test-mode";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -37,12 +38,18 @@ function revalidateProposal(solicitationId: string | null): void {
   if (solicitationId) revalidatePath(`/admin/solicitations/${solicitationId}/proposal`);
 }
 
-/** Record that counsel has reviewed the draft (DRAFT → COUNSEL_REVIEW). A human decision; no outbound. */
+/**
+ * Record that counsel has reviewed the draft (DRAFT → COUNSEL_REVIEW). A human decision; no outbound.
+ * In live-test mode with COUNSEL_AUTOFILL the operator resolves this from the provisional baseline rather
+ * than a real external review; the audit row is stamped `autofilled` so the trail never misrepresents it
+ * as a genuine counsel sign-off.
+ */
 export async function counselReviewProposal(formData: FormData): Promise<void> {
   const session = await requireAdmin();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const proposalId = readId(formData, "proposalId");
+  const autofilled = isCounselAutofill();
 
   const solicitationId = await withOrg(orgId, async (tx) => {
     const rows = await tx
@@ -62,6 +69,9 @@ export async function counselReviewProposal(formData: FormData): Promise<void> {
       action: "PROPOSAL_COUNSEL_REVIEWED",
       entityType: "proposals",
       entityId: proposalId,
+      after: autofilled
+        ? { autofilled: true, basis: "provisional counsel baseline (TEST MODE — not a real review)" }
+        : undefined,
     });
     return row.solicitationId;
   });
@@ -115,12 +125,20 @@ export async function markProposalReady(formData: FormData): Promise<void> {
  * baseline. We recompute the gates from CURRENT directives (they may have changed since drafting). On a
  * block we audit BID_SUBMIT_BLOCKED and DO NOT change status. Still no event, no network; the two
  * proposals CHECKs are the final backstop.
+ *
+ * In live-test mode (HERMES_TEST_MODE) this becomes a sandboxed, audited NO-OP: regardless of the gates,
+ * nothing is transmitted (there is no outbound code) and the proposal never advances to SUBMITTED — the
+ * attempt is recorded as BID_SUBMIT_TEST_MODE. With COUNSEL_AUTOFILL the counsel gates are treated as
+ * resolved from the provisional baseline, while SAM/CAGE/actual-rates blockers still compute honestly and
+ * are surfaced. With both flags OFF (production) the behavior below is byte-for-byte unchanged.
  */
 export async function submitProposal(formData: FormData): Promise<void> {
   const session = await requireAdmin();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const proposalId = readId(formData, "proposalId");
+  const testMode = isSubmitTestMode();
+  const autofill = isCounselAutofill();
 
   const solicitationId = await withOrg(orgId, async (tx) => {
     const [proposal] = await tx
@@ -141,14 +159,39 @@ export async function submitProposal(formData: FormData): Promise<void> {
       .limit(1);
     const dir = parseDirectives(org?.directives);
 
+    // `autofill` is only ever true in test mode, so the two counsel gates below reduce to the exact
+    // production predicates when both flags are off. SAM/CAGE/actual-rates are never auto-satisfied.
     const { ready, blockers } = readyForLiveSubmission({
-      counselConfirmed: !hasUnconfirmedCounselThresholds(dir),
+      counselConfirmed: autofill || !hasUnconfirmedCounselThresholds(dir),
       actualRatesLoaded: !dir.provisionalRatesMode,
       samRegistrationActive: dir.registration.samRegistrationActive,
       cageAssigned: dir.registration.cageAssigned,
       humanSignature: true, // the human is performing this submit action
-      counselReviewed: proposal.counselReviewedBy != null,
+      counselReviewed: autofill || proposal.counselReviewedBy != null,
     });
+
+    // Live-test mode: a SANDBOXED no-op. Whatever the gates say, nothing leaves the building and the
+    // proposal stays READY_TO_SUBMIT. We record the attempt + the still-open honest blockers so the trail
+    // shows exactly what a REAL submit would still be held on.
+    if (testMode) {
+      await writeAudit(tx, {
+        orgId,
+        actorType: "ADMIN",
+        actorUserId: userId,
+        actorEmail: session.user.email ?? null,
+        action: "BID_SUBMIT_TEST_MODE",
+        entityType: "proposals",
+        entityId: proposalId,
+        after: {
+          testMode: true,
+          counselAutofill: autofill,
+          wouldBeReady: ready,
+          blockers,
+          note: "TEST MODE — no bid transmitted; status unchanged",
+        },
+      });
+      return proposal.solicitationId; // unchanged — nothing transmitted, nothing advanced
+    }
 
     if (!ready) {
       await writeAudit(tx, {

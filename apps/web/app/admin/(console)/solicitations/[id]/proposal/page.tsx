@@ -17,6 +17,7 @@ import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
 import { humanizeStatus } from "@/lib/admin-board";
 import { requireAdmin } from "@/lib/auth-guard";
+import { isCounselAutofill, isSubmitTestMode } from "@/lib/test-mode";
 
 import { counselReviewProposal, markProposalReady, submitProposal } from "./actions";
 
@@ -109,6 +110,8 @@ export default async function ProposalReview({
   const scenarios = pricing.scenarios ?? [];
   const blockers = compliance.liveSubmission?.blockers ?? [];
   const liveReady = compliance.liveSubmission?.ready === true;
+  const testMode = isSubmitTestMode();
+  const counselAutofill = isCounselAutofill();
 
   return (
     <main>
@@ -130,6 +133,16 @@ export default async function ProposalReview({
         <p data-testid="watermark">
           <Badge tone="warn">{pricing.watermark}</Badge>
         </p>
+      )}
+      {testMode && (
+        <div className={c.testBanner} data-testid="test-mode-banner" role="status">
+          <strong>TEST MODE.</strong> Submissions are simulated — no bid is transmitted to any agency.
+          Every submit attempt is recorded to the audit trail as{" "}
+          <code className={c.code}>BID_SUBMIT_TEST_MODE</code> and the proposal stays in its current state.
+          {counselAutofill
+            ? " Counsel review is auto-resolved from the provisional baseline; SAM/CAGE/actual-rate blockers still compute honestly below."
+            : ""}
+        </div>
       )}
 
       <Section title="Pricing scenarios" count={scenarios.length}>
@@ -208,7 +221,15 @@ export default async function ProposalReview({
         {proposal.status === "DRAFT" && (
           <form action={counselReviewProposal}>
             <input type="hidden" name="proposalId" value={proposal.id} />
-            <Button type="submit">Record counsel review</Button>
+            <Button type="submit">
+              {counselAutofill ? "Auto-resolve counsel review (TEST MODE)" : "Record counsel review"}
+            </Button>
+            {counselAutofill && (
+              <p className={c.meta}>
+                Resolves from the provisional baseline rather than a real external review (audited as a test
+                autofill).
+              </p>
+            )}
           </form>
         )}
         {proposal.status === "COUNSEL_REVIEW" && (
@@ -222,8 +243,9 @@ export default async function ProposalReview({
             <input type="hidden" name="proposalId" value={proposal.id} />
             <Button type="submit">Submit to agency</Button>
             <p className={c.meta}>
-              Submitting is blocked unless every live-submission gate passes (it does not on the provisional
-              baseline). No bid is transmitted automatically.
+              {testMode
+                ? "TEST MODE: Submit records a sandboxed no-op (BID_SUBMIT_TEST_MODE) — nothing is transmitted and the status does not change."
+                : "Submitting is blocked unless every live-submission gate passes (it does not on the provisional baseline). No bid is transmitted automatically."}
             </p>
           </form>
         )}

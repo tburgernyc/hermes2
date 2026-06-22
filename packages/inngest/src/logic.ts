@@ -135,10 +135,66 @@ interface NoticeShape {
   fullParentPathName?: unknown;
   naicsCode?: unknown;
   description?: unknown;
+  responseDeadLine?: unknown; // SAM.gov's spelling (capital L) — ISO timestamp string
 }
 
 function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/** Parse SAM.gov's `responseDeadLine` ISO string into a Date; null on absent/invalid. */
+function parseDeadline(v: unknown): Date | null {
+  if (typeof v !== "string" || v.length === 0) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Format a Date as SAM.gov's required MM/dd/yyyy. */
+function formatSamDate(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}/${dd}/${d.getFullYear()}`;
+}
+
+/** Posting-window size in days for the ingest query (SAM_POSTED_WINDOW_DAYS, default 7, clamped 1..365). */
+function samWindowDays(): number {
+  const raw = Number(process.env.SAM_POSTED_WINDOW_DAYS);
+  if (!Number.isFinite(raw) || raw < 1) return 7;
+  return Math.min(Math.floor(raw), 365);
+}
+
+/** Optional SAM `typeOfSetAside` codes (SAM_SET_ASIDE, comma-separated). Empty → no set-aside filter. */
+function samSetAsideFilter(): string[] {
+  return (process.env.SAM_SET_ASIDE ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Build the SAM.gov Opportunities API v2 search URL. PURE + exported so it is unit-testable without a
+ * network. `postedFrom`/`postedTo` are REQUIRED by the API (a missing window is a 400), so we always
+ * include a bounded recent window (≤ 1 year). Set-asides are NOT filtered by default — the firm wants to
+ * see Total-Small-Business AND unrestricted notices and screen them at triage (CLAUDE.md §6.7).
+ */
+export function buildSamSearchUrl(
+  naics: readonly string[],
+  apiKey: string,
+  opts: { now: Date; windowDays: number; setAside?: readonly string[] },
+): string {
+  const postedTo = formatSamDate(opts.now);
+  const postedFrom = formatSamDate(new Date(opts.now.getTime() - opts.windowDays * 86_400_000));
+  const params = new URLSearchParams({
+    ncode: naics.join(","),
+    postedFrom,
+    postedTo,
+    limit: "100",
+    api_key: apiKey,
+  });
+  if (opts.setAside && opts.setAside.length > 0) {
+    params.set("typeOfSetAside", opts.setAside.join(","));
+  }
+  return `https://api.sam.gov/opportunities/v2/search?${params.toString()}`;
 }
 
 /* ===================================================================================
@@ -151,6 +207,16 @@ export async function ingestSolicitations(
 ): Promise<IngestedSolicitation[]> {
   const { orgId } = args;
 
+  // Fail fast on a missing key: refuse to fetch with an empty key (which would NOT return real results) —
+  // the operator must see "stop and report", never a faked or empty success (CLAUDE.md §1).
+  const apiKey = process.env.SAM_API_KEY ?? "";
+  if (!apiKey) {
+    throw new Error(
+      "SAM_API_KEY is not set — refusing to query SAM.gov with an empty key (no fake results). " +
+        "Set SAM_API_KEY in the runtime environment to ingest real opportunities.",
+    );
+  }
+
   const [org] = await tx
     .select({ directives: orgs.directives })
     .from(orgs)
@@ -160,10 +226,11 @@ export async function ingestSolicitations(
   const configured = org?.directives?.naicsCodes;
   const naics = configured && configured.length > 0 ? configured : [...DEFAULT_NAICS];
 
-  const apiKey = process.env.SAM_API_KEY ?? "";
-  const url =
-    `https://api.sam.gov/opportunities/v2/search?ncode=${encodeURIComponent(naics.join(","))}` +
-    `&limit=100&api_key=${encodeURIComponent(apiKey)}`;
+  const url = buildSamSearchUrl(naics, apiKey, {
+    now: new Date(),
+    windowDays: samWindowDays(),
+    setAside: samSetAsideFilter(),
+  });
 
   const { bytes } = await deps.fetchDoc(url, { allowedTypes: ["application/json"] });
 
@@ -189,6 +256,7 @@ export async function ingestSolicitations(
         title: asString(n.title) ?? "Untitled solicitation",
         agency: asString(n.fullParentPathName) ?? null,
         naicsCode: validNaics(asString(n.naicsCode)),
+        responseDeadline: parseDeadline(n.responseDeadLine),
         scopeText: asString(n.description) ?? "", // raw SOW — treated as DATA at triage time
         status: "PENDING_TRIAGE",
       })

@@ -522,6 +522,19 @@
   word-break: break-all;
 }
 
+/* ---- Live-test mode banner (CLAUDE.md §2 — only rendered when HERMES_TEST_MODE=true) ---- */
+.testBanner {
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warn-border);
+  border-left: 3px solid var(--color-warn-ink);
+  border-radius: var(--radius);
+  background: var(--color-warn-surface);
+  color: var(--color-warn-ink);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
 /* ---- App shell (portal layout) ---- */
 .appShell {
   min-height: 100vh;

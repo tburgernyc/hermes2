@@ -73,6 +73,37 @@ other than `true`). With both off, the submit gate and counsel gate behave byte-
    to the audit trail, transmits nothing, and leaves the proposal in READY_TO_SUBMIT. Confirm in the audit
    log that no `PROPOSAL_SUBMITTED` row was written.
 
+## Seed a stages-5–6 walk scenario (optional, dev only)
+
+Stages 5–6 (quote ranking → proposal draft) need data a fresh org lacks: scored-able prospects and a
+SUBMITTED vendor quote with line items. `packages/inngest/scripts/seed-walk.ts` stages exactly that —
+**inputs only**: one solicitation (`PENDING_TRIAGE`, FFP, `isServices=true`), 3 DISCOVERY prospects, and 2
+SUBMITTED prospect-linked quotes with line items (one carries a clearly-synthetic prompt-injection in its
+`notes` so the live ranking populates `quote_injection_attempts` and you can see the injection alert). It
+writes **no** AI output (triage verdict / scores / ranking / narrative are all left to the live engine),
+sends no email, approves nothing, and advances no human gate — every write goes through the real schema +
+org-scoped RLS, honoring every CHECK and the vendor⊕prospect XOR.
+
+Operator-run only (NOT a CI step): it **refuses unless `HERMES_TEST_MODE=true`** and `CI` is unset, and
+scopes everything to `HERMES_ACTIVE_ORG_IDS[0]` (fails fast if that org is unset/missing). Re-running is
+idempotent (dedupe on notice `SEED-WALK-001` + the seed prospect emails). As with `smoke-live.ts` it loads
+`.env` itself — never `export` `ANTHROPIC_API_KEY`/`SAM_API_KEY` (CLAUDE.md §4; the seed makes no AI calls).
+
+```bash
+# stage the scenario (idempotent — only missing rows are created)
+HERMES_TEST_MODE=true pnpm --filter @hermes/inngest exec tsx scripts/seed-walk.ts
+# clear it for a clean re-walk
+HERMES_TEST_MODE=true pnpm --filter @hermes/inngest exec tsx scripts/seed-walk.ts --reset
+```
+
+`--reset` clears the seed scenario's `solicitations` / `vendor_quotes` / `vendor_quote_line_items` /
+`outreach_campaigns` / `proposals` rows for the org. `audit_log` is **append-only by design** (the 0003
+immutability trigger blocks every role, incl. the owner), so it is intentionally left intact — each reseed
+mints fresh row ids, so a prior walk's audit history is orphaned, not mutated, and never pollutes the next
+clean walk. The script prints the seeded solicitation id; open `/admin/solicitations/<id>`, run AI ranking
+on the SUBMITTED quotes (stage 5 — AI score/risks + injection alert), then shortlist → select winner → the
+priced bid decision-brief drafts (stage 6).
+
 ## No-transmission guarantee
 
 There is **no outbound submission code** anywhere in `submitProposal` — even off test mode it can only flip

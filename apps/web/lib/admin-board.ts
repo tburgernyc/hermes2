@@ -64,3 +64,23 @@ export const QUALIFIABLE_PROSPECT_STATUSES = ["NEW", "SCREENED", "CONTACTED", "R
 export function isQualifiableProspectStatus(status: string): boolean {
   return (QUALIFIABLE_PROSPECT_STATUSES as readonly string[]).includes(status);
 }
+
+/** Console Badge tones — kept loose to match the Badge component's accepted values. */
+export type BadgeTone = "success" | "warn" | "neutral" | "info";
+
+/**
+ * Map the advisory ai_recommendation enum (PURSUE/REJECT/HUMAN_REVIEW) to a Badge tone. This is a
+ * DISPLAY treatment only — the recommendation never gates anything (CLAUDE.md §2); the human decides.
+ * PURSUE → success, HUMAN_REVIEW → warn, REJECT → neutral (a no-go is a calm signal, not an error).
+ */
+export function recommendationTone(recommendation: string | null | undefined): BadgeTone {
+  if (recommendation === "PURSUE") return "success";
+  if (recommendation === "HUMAN_REVIEW") return "warn";
+  return "neutral";
+}
+
+/** Human-readable label for the advisory recommendation: "HUMAN_REVIEW" → "Human review". */
+export function recommendationLabel(recommendation: string | null | undefined): string {
+  if (!recommendation) return "—";
+  return humanizeStatus(recommendation);
+}

@@ -11,6 +11,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -22,6 +23,7 @@ import {
 import { sql } from "drizzle-orm";
 
 import {
+  aiRecommendation,
   outreachStatus,
   outreachStep,
   prospectSource,
@@ -134,6 +136,13 @@ export const outreachCampaigns = pgTable(
     status: outreachStatus("status").notNull().default("DRAFT"),
     subject: text("subject").notNull(),
     body: text("body").notNull(), // React Email autoescaped at render
+    /** AI per-(solicitation,prospect) match output (recommendation-only; CLAUDE.md §2). Operator-facing
+     *  — outreach_campaigns has NO vendor/token grant, so these never reach the vendor side. */
+    aiMatchScore: integer("ai_match_score"), // 1..100 ProspectScore.score
+    aiCapabilityMatch: numeric("ai_capability_match", { precision: 4, scale: 3 }), // 0..1
+    aiStrengths: jsonb("ai_strengths").$type<string[]>(),
+    aiGaps: jsonb("ai_gaps").$type<string[]>(),
+    aiRecommendation: aiRecommendation("ai_recommendation"),
     /** HMAC-SHA-256 token hashes (keyed by TOKEN_SIGNING_SECRET); raw tokens are never stored. */
     quoteTokenHash: text("quote_token_hash"),
     quoteTokenExpiresAt: timestamp("quote_token_expires_at", { withTimezone: true, mode: "date" }),
@@ -175,6 +184,15 @@ export const outreachCampaigns = pgTable(
       sql`${t.status} NOT IN ('APPROVED','SENT','RESPONDED','OPTED_OUT') OR (${t.approvedBy} IS NOT NULL AND ${t.approvedAt} IS NOT NULL)`,
     ),
     check("outreach_sent_requires_timestamp", sql`${t.status} <> 'SENT' OR ${t.sentAt} IS NOT NULL`),
+    // AI match score 1..100 (mirrors vendor_prospects_score_range) and capability match 0..1.
+    check(
+      "outreach_ai_match_score_range",
+      sql`${t.aiMatchScore} IS NULL OR (${t.aiMatchScore} BETWEEN 1 AND 100)`,
+    ),
+    check(
+      "outreach_ai_capability_match_range",
+      sql`${t.aiCapabilityMatch} IS NULL OR (${t.aiCapabilityMatch} BETWEEN 0 AND 1)`,
+    ),
     // Token hash and its expiry are set together or both null.
     check(
       "outreach_quote_token_expiry",

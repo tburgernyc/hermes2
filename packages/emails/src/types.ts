@@ -29,5 +29,7 @@ export interface MorningBriefInput {
   rankedQuotes: number;
   deadlines: BriefItem[];
   arOverdue: BriefItem[];
+  /** Optional warn banner: quote(s) tried to influence the AI ranking on a live solicitation. */
+  injectionAlert?: string;
   approvalsUrl: string;
 }

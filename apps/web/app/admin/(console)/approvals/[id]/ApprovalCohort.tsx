@@ -5,6 +5,7 @@ import { useState, useTransition, type JSX, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/console";
 import { Button } from "@/components/ui/Button";
+import { recommendationLabel, recommendationTone } from "@/lib/admin-board";
 import c from "@/components/ui/console.module.css";
 
 import { approveOutreach, rejectOutreach } from "../actions";
@@ -21,6 +22,12 @@ export interface RecipientRow {
   capabilitiesText: string | null;
   /** Derived server-side: low discovery score and/or an early prospect status. */
   lowConfidence: boolean;
+  /** Per-(solicitation,prospect) AI match output (recommendation-only; CLAUDE.md §2). Display only. */
+  matchScore: number | null;
+  capabilityMatch: number | null;
+  strengths: string[];
+  gaps: string[];
+  recommendation: string | null;
 }
 
 interface ApprovalCohortProps {
@@ -110,12 +117,39 @@ export function ApprovalCohort({ recipients, source }: ApprovalCohortProps): JSX
                     <div className={styles.recipientTop}>
                       <strong className={styles.recipientName}>{r.prospectName}</strong>
                       <div className={styles.badges}>
+                        {r.recommendation ? (
+                          <Badge tone={recommendationTone(r.recommendation)}>
+                            {recommendationLabel(r.recommendation)}
+                          </Badge>
+                        ) : null}
                         <Badge tone={r.lowConfidence ? "warn" : "neutral"}>
                           Discovery score {r.discoveryScore ?? "—"}/100
                         </Badge>
                         <Badge tone="info">{r.prospectStatus}</Badge>
                       </div>
                     </div>
+
+                    {r.matchScore != null || r.capabilityMatch != null ? (
+                      <p className={styles.caps}>
+                        <span className={styles.capsLabel}>AI match for this solicitation:</span>{" "}
+                        {r.matchScore ?? "—"}/100
+                        {r.capabilityMatch != null
+                          ? ` · capability ${(r.capabilityMatch * 100).toFixed(0)}%`
+                          : ""}
+                      </p>
+                    ) : null}
+
+                    {r.strengths.length > 0 ? (
+                      <p className={styles.caps}>
+                        <span className={styles.capsLabel}>Strengths:</span> {r.strengths.join("; ")}
+                      </p>
+                    ) : null}
+
+                    {r.gaps.length > 0 ? (
+                      <p className={styles.caps}>
+                        <span className={styles.capsLabel}>Gaps:</span> {r.gaps.join("; ")}
+                      </p>
+                    ) : null}
 
                     {r.capabilitiesText ? (
                       <p className={styles.caps}>

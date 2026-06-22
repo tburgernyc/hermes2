@@ -45,6 +45,7 @@ export function MorningBrief({
   rankedQuotes,
   deadlines,
   arOverdue,
+  injectionAlert,
   approvalsUrl,
 }: MorningBriefInput) {
   return (
@@ -58,6 +59,21 @@ export function MorningBrief({
           <Heading as="h2" style={{ fontSize: "18px" }}>
             {orgName} — morning brief ({dateLabel})
           </Heading>
+          {injectionAlert ? (
+            <Text
+              style={{
+                fontSize: "13px",
+                color: "#7f1d1d",
+                backgroundColor: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: "4px",
+                padding: "8px 10px",
+                margin: "0 0 12px",
+              }}
+            >
+              ⚠ {injectionAlert}
+            </Text>
+          ) : null}
           <ItemList title="Triage recommendations awaiting your review" items={triageReady} />
           <Hr />
           <ItemList title="Outreach awaiting your approval" items={awaitingApproval} />

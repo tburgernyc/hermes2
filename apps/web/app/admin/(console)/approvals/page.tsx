@@ -8,9 +8,10 @@ import type { JSX } from "react";
 
 import { and, desc, eq, outreachCampaigns, solicitations, withOrg } from "@hermes/db";
 
-import { Card, PageHeader, Section } from "@/components/ui/console";
+import { Badge, Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
+import { recommendationLabel, recommendationTone } from "@/lib/admin-board";
 import { requireAdmin } from "@/lib/auth-guard";
 
 import { approveOutreach, approveSourcing, rejectOutreach } from "./actions";
@@ -29,6 +30,7 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
         agency: solicitations.agency,
         feasibilityScore: solicitations.feasibilityScore,
         zeroFloatFit: solicitations.zeroFloatFit,
+        recommendation: solicitations.triageRecommendation,
       })
       .from(solicitations)
       .where(and(eq(solicitations.orgId, orgId), eq(solicitations.status, "TRIAGE_COMPLETE")))
@@ -40,6 +42,9 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
         id: outreachCampaigns.id,
         subject: outreachCampaigns.subject,
         prospectId: outreachCampaigns.prospectId,
+        matchScore: outreachCampaigns.aiMatchScore,
+        capabilityMatch: outreachCampaigns.aiCapabilityMatch,
+        recommendation: outreachCampaigns.aiRecommendation,
       })
       .from(outreachCampaigns)
       .where(and(eq(outreachCampaigns.orgId, orgId), eq(outreachCampaigns.status, "PENDING_APPROVAL")))
@@ -64,7 +69,14 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
               <Card as="li" key={s.id} size="sm">
                 <div className={c.rowBetween}>
                   <div>
-                    <strong>{s.title}</strong>
+                    <div className={c.row}>
+                      <strong>{s.title}</strong>
+                      {s.recommendation && (
+                        <Badge tone={recommendationTone(s.recommendation)}>
+                          {recommendationLabel(s.recommendation)}
+                        </Badge>
+                      )}
+                    </div>
                     <div className={c.meta}>
                       {s.agency ?? "Agency unknown"} · feasibility {s.feasibilityScore ?? "?"} · fit{" "}
                       {s.zeroFloatFit ?? "?"}
@@ -91,7 +103,24 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
             {pendingOutreach.map((o) => (
               <Card as="li" key={o.id} size="sm">
                 <div className={c.rowBetween}>
-                  <strong>{o.subject}</strong>
+                  <div>
+                    <div className={c.row}>
+                      <strong>{o.subject}</strong>
+                      {o.recommendation && (
+                        <Badge tone={recommendationTone(o.recommendation)}>
+                          {recommendationLabel(o.recommendation)}
+                        </Badge>
+                      )}
+                    </div>
+                    {(o.matchScore != null || o.capabilityMatch != null) && (
+                      <div className={c.meta}>
+                        AI match {o.matchScore ?? "—"}/100
+                        {o.capabilityMatch != null
+                          ? ` · capability ${(Number(o.capabilityMatch) * 100).toFixed(0)}%`
+                          : ""}
+                      </div>
+                    )}
+                  </div>
                   <div className={c.row}>
                     <form action={approveOutreach}>
                       <input type="hidden" name="outreachId" value={o.id} />

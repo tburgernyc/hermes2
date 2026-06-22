@@ -80,6 +80,8 @@ interface PrivRow {
   token_audit_delete: boolean;
   token_proposals_insert: boolean;
   // hermes_vendor: read surface (0009 + 0010 RFQ browse) + the PR-K (0011) scoped WRITE surface.
+  // NOTE: solicitations/vendor_quotes SELECT is now COLUMN-level (0012 withholds operator AI fields),
+  // so these are has_column_privilege on a known-safe column — table-level SELECT is intentionally gone.
   vendor_quote_select: boolean;
   vendor_quote_insert: boolean;
   vendor_vendors_select: boolean;
@@ -91,6 +93,15 @@ interface PrivRow {
   vendor_audit_select: boolean;
   vendor_users_select: boolean;
   vendor_prospects_select: boolean;
+  // 0012: operator-only AI fields are withheld from the low-trust roles (column-level grants).
+  vendor_sol_triage_summary_select: boolean;
+  vendor_sol_injection_select: boolean;
+  vendor_quote_ai_score_select: boolean;
+  vendor_quote_ai_risks_select: boolean;
+  vendor_proposals_status_select: boolean;
+  vendor_proposals_narrative_select: boolean;
+  token_sol_title_select: boolean;
+  token_sol_triage_summary_select: boolean;
 }
 
 d("guards: triggers, RLS, policies, roles, grants", () => {
@@ -175,17 +186,26 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
            has_table_privilege('hermes_token','audit_log','UPDATE')        AS token_audit_update,
            has_table_privilege('hermes_token','audit_log','DELETE')        AS token_audit_delete,
            has_table_privilege('hermes_token','proposals','INSERT')        AS token_proposals_insert,
-           has_table_privilege('hermes_vendor','vendor_quotes','SELECT')   AS vendor_quote_select,
+           has_column_privilege('hermes_vendor','vendor_quotes','total_price','SELECT') AS vendor_quote_select,
            has_table_privilege('hermes_vendor','vendor_quotes','INSERT')   AS vendor_quote_insert,
            has_table_privilege('hermes_vendor','vendors','SELECT')         AS vendor_vendors_select,
-           has_table_privilege('hermes_vendor','solicitations','SELECT')   AS vendor_solicitations_select,
+           has_column_privilege('hermes_vendor','solicitations','title','SELECT') AS vendor_solicitations_select,
            has_table_privilege('hermes_vendor','vendor_quote_line_items','SELECT') AS vendor_line_items_select,
            has_table_privilege('hermes_vendor','vendor_quote_line_items','INSERT') AS vendor_line_items_insert,
            has_table_privilege('hermes_vendor','documents','INSERT')        AS vendor_documents_insert,
            has_table_privilege('hermes_vendor','audit_log','INSERT')        AS vendor_audit_insert,
            has_table_privilege('hermes_vendor','audit_log','SELECT')        AS vendor_audit_select,
            has_table_privilege('hermes_vendor','users','SELECT')           AS vendor_users_select,
-           has_table_privilege('hermes_vendor','vendor_prospects','SELECT') AS vendor_prospects_select`,
+           has_table_privilege('hermes_vendor','vendor_prospects','SELECT') AS vendor_prospects_select,
+           -- 0012: operator-only AI fields must NOT be column-readable by the low-trust roles.
+           has_column_privilege('hermes_vendor','solicitations','triage_summary','SELECT')        AS vendor_sol_triage_summary_select,
+           has_column_privilege('hermes_vendor','solicitations','quote_injection_attempts','SELECT') AS vendor_sol_injection_select,
+           has_column_privilege('hermes_vendor','vendor_quotes','ai_score','SELECT')              AS vendor_quote_ai_score_select,
+           has_column_privilege('hermes_vendor','vendor_quotes','ai_risks','SELECT')              AS vendor_quote_ai_risks_select,
+           has_column_privilege('hermes_vendor','proposals','status','SELECT')                    AS vendor_proposals_status_select,
+           has_column_privilege('hermes_vendor','proposals','narrative','SELECT')                 AS vendor_proposals_narrative_select,
+           has_column_privilege('hermes_token','solicitations','title','SELECT')                  AS token_sol_title_select,
+           has_column_privilege('hermes_token','solicitations','triage_summary','SELECT')         AS token_sol_triage_summary_select`,
       );
       privs = pr.rows[0];
     } finally {
@@ -292,5 +312,23 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     // Still no access to the link/identity (users) or other firms' prospects — unchanged by PR K.
     expect(privs?.vendor_users_select).toBe(false);
     expect(privs?.vendor_prospects_select).toBe(false);
+  });
+
+  it("withholds operator-only AI fields from the low-trust roles (0012 column-level grants)", () => {
+    expect(privs).toBeDefined();
+    // The vendor still browses solicitations + reads its own quotes/proposals — on the SAFE columns.
+    expect(privs?.vendor_solicitations_select).toBe(true);
+    expect(privs?.vendor_quote_select).toBe(true);
+    expect(privs?.vendor_proposals_status_select).toBe(true);
+    // But the operator-only AI fields are NOT column-readable by the vendor (would leak triage reasoning,
+    // injection flags, per-quote scoring/risks, or the AI narrative).
+    expect(privs?.vendor_sol_triage_summary_select).toBe(false);
+    expect(privs?.vendor_sol_injection_select).toBe(false);
+    expect(privs?.vendor_quote_ai_score_select).toBe(false);
+    expect(privs?.vendor_quote_ai_risks_select).toBe(false);
+    expect(privs?.vendor_proposals_narrative_select).toBe(false);
+    // The token role keeps its solicitation browse (title) but cannot read the triage AI summary either.
+    expect(privs?.token_sol_title_select).toBe(true);
+    expect(privs?.token_sol_triage_summary_select).toBe(false);
   });
 });

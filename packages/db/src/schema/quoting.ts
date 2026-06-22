@@ -52,6 +52,10 @@ export const vendorQuotes = pgTable(
     notes: text("notes"), // UNTRUSTED free text — fence as data in any AI call
     aiRank: integer("ai_rank"),
     aiRationale: text("ai_rationale"),
+    /** Operator-only AI evaluation: numeric score (0..100) + risks flagged. NOT vendor-readable
+     *  (column-level grants in 0012 withhold these from hermes_vendor). */
+    aiScore: numeric("ai_score", { precision: 5, scale: 2 }),
+    aiRisks: jsonb("ai_risks").$type<string[]>(),
     evaluatedAt: timestamp("evaluated_at", { withTimezone: true, mode: "date" }),
     ...timestamps(),
   },
@@ -85,6 +89,8 @@ export const vendorQuotes = pgTable(
       sql`(${t.vendorId} IS NOT NULL) <> (${t.prospectId} IS NOT NULL)`,
     ),
     check("vendor_quotes_total_nonneg", sql`${t.totalPrice} IS NULL OR ${t.totalPrice} >= 0`),
+    // AI evaluation score is a 0..100 rating (mirrors QuoteRanking.score).
+    check("vendor_quotes_ai_score_range", sql`${t.aiScore} IS NULL OR (${t.aiScore} BETWEEN 0 AND 100)`),
   ],
 );
 
@@ -153,6 +159,9 @@ export const proposals = pgTable(
     /** Scenarios for the human to choose — never a single authoritative number (CLAUDE.md §6). */
     pricingScenarios: jsonb("pricing_scenarios"),
     complianceChecklist: jsonb("compliance_checklist"),
+    /** AI-drafted ProposalNarrative (prose only — display-only, gates nothing; CLAUDE.md §2/§6). NOT
+     *  vendor-readable (0012 column grants withhold it from hermes_vendor). */
+    narrative: jsonb("narrative"),
     // --- FAR 52.219-14 Limitations on Subcontracting substrate ---
     primeQualifyingStatus: smallBusinessStatus("prime_qualifying_status"),
     primeQualifyingNaics: varchar("prime_qualifying_naics", { length: 6 }),

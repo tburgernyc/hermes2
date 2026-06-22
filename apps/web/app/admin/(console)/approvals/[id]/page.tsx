@@ -73,6 +73,11 @@ export default async function ApprovalDetailPage({
         discoveryScore: vendorProspects.discoveryScore,
         prospectStatus: vendorProspects.status,
         capabilitiesText: vendorProspects.capabilitiesText,
+        matchScore: outreachCampaigns.aiMatchScore,
+        capabilityMatch: outreachCampaigns.aiCapabilityMatch,
+        strengths: outreachCampaigns.aiStrengths,
+        gaps: outreachCampaigns.aiGaps,
+        recommendation: outreachCampaigns.aiRecommendation,
       })
       .from(outreachCampaigns)
       .innerJoin(
@@ -104,6 +109,12 @@ export default async function ApprovalDetailPage({
     prospectStatus: r.prospectStatus,
     capabilitiesText: r.capabilitiesText,
     lowConfidence: isLowConfidence(r.discoveryScore, r.prospectStatus),
+    matchScore: r.matchScore,
+    // ai_capability_match is a numeric column (string at the driver) — coerce for display.
+    capabilityMatch: r.capabilityMatch != null ? Number(r.capabilityMatch) : null,
+    strengths: r.strengths ?? [],
+    gaps: r.gaps ?? [],
+    recommendation: r.recommendation,
   }));
 
   // scope_text is raw SOW data — rendered as text (JSX autoescape), never executed (CLAUDE.md §5).

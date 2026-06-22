@@ -45,6 +45,13 @@ export const contractType = pgEnum("contract_type", [
 
 export const zeroFloatFit = pgEnum("zero_float_fit", ["STRONG", "MODERATE", "WEAK", "NONE"]);
 
+/**
+ * AI advisory recommendation (recommendation-only — a human always decides). Mirrors the AI engine's
+ * RecommendationZ (packages/ai schemas). Surfaced on triaged solicitations and matched outreach so the
+ * operator sees the model's advisory verdict before deciding — never a gate (CLAUDE.md §2).
+ */
+export const aiRecommendation = pgEnum("ai_recommendation", ["PURSUE", "REJECT", "HUMAN_REVIEW"]);
+
 export const noticeType = pgEnum("notice_type", [
   "SOLICITATION",
   "COMBINED_SYNOPSIS_SOLICITATION",

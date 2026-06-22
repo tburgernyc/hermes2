@@ -23,7 +23,7 @@ import {
 import { Badge, Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
-import { humanizeStatus } from "@/lib/admin-board";
+import { humanizeStatus, recommendationLabel, recommendationTone } from "@/lib/admin-board";
 import { requireAdmin } from "@/lib/auth-guard";
 
 import { approveSourcing } from "../../approvals/actions";
@@ -58,6 +58,8 @@ export default async function SolicitationDetail({
         totalPrice: vendorQuotes.totalPrice,
         aiRank: vendorQuotes.aiRank,
         aiRationale: vendorQuotes.aiRationale,
+        aiScore: vendorQuotes.aiScore,
+        aiRisks: vendorQuotes.aiRisks,
         prospectId: vendorQuotes.prospectId,
         vendorId: vendorQuotes.vendorId,
       })
@@ -107,6 +109,11 @@ export default async function SolicitationDetail({
         }
         actions={
           <>
+            {sol.triageRecommendation && (
+              <Badge tone={recommendationTone(sol.triageRecommendation)}>
+                {recommendationLabel(sol.triageRecommendation)}
+              </Badge>
+            )}
             <Badge tone="info">feasibility {sol.feasibilityScore ?? "?"}</Badge>
             <Badge>{sol.contractType ?? "—"}</Badge>
           </>
@@ -120,12 +127,34 @@ export default async function SolicitationDetail({
         </p>
       )}
 
+      {sol.quoteInjectionAttempts && sol.quoteInjectionAttempts.length > 0 && (
+        <Card className={c.blockerCard} testId="injection-warning">
+          <strong>
+            ⚠ {sol.quoteInjectionAttempts.length} quote(s) attempted to influence the AI ranking and
+            were ignored.
+          </strong>
+          <ul className={c.bulletList}>
+            {sol.quoteInjectionAttempts.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       <Section title="Triage recommendation">
         <Card>
-          <p className={c.metaMono}>
-            NAICS {sol.naicsCode ?? "?"} · zero-float fit {sol.zeroFloatFit ?? "?"} · contract type{" "}
-            {sol.contractType ?? "?"}
-          </p>
+          <div className={c.row}>
+            {sol.triageRecommendation && (
+              <Badge tone={recommendationTone(sol.triageRecommendation)}>
+                {recommendationLabel(sol.triageRecommendation)}
+              </Badge>
+            )}
+            <span className={c.metaMono}>
+              NAICS {sol.naicsCode ?? "?"} · zero-float fit {sol.zeroFloatFit ?? "?"} · contract type{" "}
+              {sol.contractType ?? "?"}
+            </span>
+          </div>
+          {sol.triageSummary && <p className={c.rationale}>{sol.triageSummary}</p>}
           {sol.rejectionReasons && sol.rejectionReasons.length > 0 && (
             <>
               <strong>Flagged concerns</strong>
@@ -180,6 +209,9 @@ export default async function SolicitationDetail({
                           <span className={c.rankPill}>#{q.aiRank}</span>
                         ) : null}
                         <strong>{name}</strong>
+                        {q.aiScore != null && (
+                          <Badge tone="info">AI score {Number(q.aiScore).toFixed(0)}</Badge>
+                        )}
                       </div>
                       <div className={c.row}>
                         <Badge>{humanizeStatus(q.status)}</Badge>
@@ -206,6 +238,16 @@ export default async function SolicitationDetail({
                     </div>
                   </div>
                   {q.aiRationale && <div className={c.rationale}>{q.aiRationale}</div>}
+                  {q.aiRisks && q.aiRisks.length > 0 && (
+                    <div className={c.rationale}>
+                      <strong>Risks flagged</strong>
+                      <ul className={c.bulletList}>
+                        {q.aiRisks.map((risk, i) => (
+                          <li key={i}>{risk}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </Card>
               );
             })}

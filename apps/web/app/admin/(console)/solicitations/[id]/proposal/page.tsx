@@ -37,6 +37,13 @@ interface PricingJson {
   watermark?: string | null;
   disclaimer?: string;
 }
+interface NarrativeJson {
+  executiveSummary?: string;
+  technicalApproach?: string;
+  managementApproach?: string;
+  pastPerformanceNarrative?: string;
+  assumptions?: string[];
+}
 interface ChecklistItem {
   item: string;
   passed: boolean;
@@ -108,6 +115,7 @@ export default async function ProposalReview({
   const pricing = (proposal.pricingScenarios ?? {}) as PricingJson;
   const compliance = (proposal.complianceChecklist ?? {}) as ComplianceJson;
   const scenarios = pricing.scenarios ?? [];
+  const narrative = (proposal.narrative ?? {}) as NarrativeJson;
   const blockers = compliance.liveSubmission?.blockers ?? [];
   const liveReady = compliance.liveSubmission?.ready === true;
   const testMode = isSubmitTestMode();
@@ -143,6 +151,55 @@ export default async function ProposalReview({
             ? " Counsel review is auto-resolved from the provisional baseline; SAM/CAGE/actual-rate blockers still compute honestly below."
             : ""}
         </div>
+      )}
+
+      {(narrative.executiveSummary ||
+        narrative.technicalApproach ||
+        narrative.managementApproach ||
+        narrative.pastPerformanceNarrative ||
+        (narrative.assumptions?.length ?? 0) > 0) && (
+        <Section title="Proposal narrative">
+          <Card>
+            <p className={c.meta}>
+              AI-drafted prose for human + counsel review. Display only — it informs no pricing,
+              compliance, or live-submission gate (CLAUDE.md §2/§6).
+            </p>
+            {narrative.executiveSummary && (
+              <>
+                <strong>Executive summary</strong>
+                <p className={c.rationale}>{narrative.executiveSummary}</p>
+              </>
+            )}
+            {narrative.technicalApproach && (
+              <>
+                <strong>Technical approach</strong>
+                <p className={c.rationale}>{narrative.technicalApproach}</p>
+              </>
+            )}
+            {narrative.managementApproach && (
+              <>
+                <strong>Management approach</strong>
+                <p className={c.rationale}>{narrative.managementApproach}</p>
+              </>
+            )}
+            {narrative.pastPerformanceNarrative && (
+              <>
+                <strong>Past performance</strong>
+                <p className={c.rationale}>{narrative.pastPerformanceNarrative}</p>
+              </>
+            )}
+            {narrative.assumptions && narrative.assumptions.length > 0 && (
+              <>
+                <strong>Assumptions</strong>
+                <ul className={c.bulletList}>
+                  {narrative.assumptions.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Card>
+        </Section>
       )}
 
       <Section title="Pricing scenarios" count={scenarios.length}>

@@ -21,6 +21,7 @@ import {
 import { sql } from "drizzle-orm";
 
 import {
+  aiRecommendation,
   awardAmountKind,
   classificationSource,
   contractType,
@@ -58,6 +59,11 @@ export const solicitations = pgTable(
     feasibilityScore: integer("feasibility_score"), // 1..10
     zeroFloatFit: zeroFloatFit("zero_float_fit"),
     rejectionReasons: jsonb("rejection_reasons").$type<string[]>(),
+    /** AI triage prose summary + advisory verdict (recommendation-only — a human decides; CLAUDE.md §2). */
+    triageSummary: text("triage_summary"),
+    triageRecommendation: aiRecommendation("triage_recommendation"),
+    /** Operator-only: quote text that tried to manipulate the AI ranking (was ignored). NOT vendor-readable. */
+    quoteInjectionAttempts: jsonb("quote_injection_attempts").$type<string[]>(),
     triageModel: text("triage_model"),
     triagedAt: timestamp("triaged_at", { withTimezone: true, mode: "date" }),
     sourcingApprovedBy: uuid("sourcing_approved_by"),

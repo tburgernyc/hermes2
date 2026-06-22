@@ -99,6 +99,9 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
     { name: "feasibility_score", udt: "int4", nullable: true },
     { name: "zero_float_fit", udt: "zero_float_fit", nullable: true },
     { name: "rejection_reasons", udt: "jsonb", nullable: true },
+    { name: "triage_summary", udt: "text", nullable: true },
+    { name: "triage_recommendation", udt: "ai_recommendation", nullable: true },
+    { name: "quote_injection_attempts", udt: "jsonb", nullable: true },
     { name: "triage_model", udt: "text", nullable: true },
     { name: "triaged_at", udt: "timestamptz", nullable: true },
     { name: "sourcing_approved_by", udt: "uuid", nullable: true },
@@ -114,6 +117,11 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
     { name: "status", udt: "outreach_status", nullable: false },
     { name: "subject", udt: "text", nullable: false },
     { name: "body", udt: "text", nullable: false },
+    { name: "ai_match_score", udt: "int4", nullable: true },
+    { name: "ai_capability_match", udt: "numeric", nullable: true },
+    { name: "ai_strengths", udt: "jsonb", nullable: true },
+    { name: "ai_gaps", udt: "jsonb", nullable: true },
+    { name: "ai_recommendation", udt: "ai_recommendation", nullable: true },
     { name: "quote_token_hash", udt: "text", nullable: true },
     { name: "quote_token_expires_at", udt: "timestamptz", nullable: true },
     { name: "optout_token_hash", udt: "text", nullable: true },
@@ -180,6 +188,7 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
     { name: "status", udt: "proposal_status", nullable: false },
     { name: "pricing_scenarios", udt: "jsonb", nullable: true },
     { name: "compliance_checklist", udt: "jsonb", nullable: true },
+    { name: "narrative", udt: "jsonb", nullable: true },
     { name: "prime_qualifying_status", udt: "small_business_status", nullable: true },
     { name: "prime_qualifying_naics", udt: "varchar", nullable: true },
     { name: "government_payment_basis", udt: "numeric", nullable: true },
@@ -223,6 +232,8 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
     { name: "notes", udt: "text", nullable: true },
     { name: "ai_rank", udt: "int4", nullable: true },
     { name: "ai_rationale", udt: "text", nullable: true },
+    { name: "ai_score", udt: "numeric", nullable: true },
+    { name: "ai_risks", udt: "jsonb", nullable: true },
     { name: "evaluated_at", udt: "timestamptz", nullable: true },
     ...stamps,
   ],
@@ -285,8 +296,9 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
 
 export const EXPECTED_TABLES: string[] = Object.keys(EXPECTED_COLUMNS);
 
-/** All 27 enums and their labels, in sort order. */
+/** All 28 enums and their labels, in sort order. */
 export const EXPECTED_ENUMS: Record<string, string[]> = {
+  ai_recommendation: ["PURSUE", "REJECT", "HUMAN_REVIEW"],
   actor_type: ["SYSTEM", "ADMIN", "VENDOR", "TOKEN"],
   ar_followup_status: ["SCHEDULED", "SENT", "PAID", "ESCALATED", "WRITTEN_OFF"],
   award_amount_kind: ["EXACT", "ESTIMATED", "CEILING", "OBLIGATED", "UNKNOWN"],

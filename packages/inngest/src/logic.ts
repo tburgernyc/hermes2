@@ -34,6 +34,7 @@ import {
   parseDirectives,
   proposals,
   solicitations,
+  sql,
   users,
   vendorProspects,
   vendorQuoteLineItems,
@@ -345,6 +346,10 @@ export async function triage(
       feasibilityScore: verdict.feasibilityScore,
       zeroFloatFit: mapZeroFloatFit(verdict.zeroFloatFit, verdict.feasibilityScore),
       rejectionReasons: verdict.rejectionReasons,
+      // Persist the advisory verdict so the operator sees it on the console (was audit-only). Display
+      // only — a human still approves sourcing or marks no-go; nothing here advances state (§2).
+      triageSummary: verdict.summary,
+      triageRecommendation: verdict.recommendation,
       contractType: mapContractType(verdict.contractType) ?? sol.contractType,
       naicsCode: validNaics(verdict.naics) ?? sol.naicsCode,
       triageModel: MODELS.triage,
@@ -435,6 +440,14 @@ export async function onSourcingApproved(
         status: "PENDING_APPROVAL", // awaits the human approval action; tokens are NOT minted until send
         subject,
         body: bodyText,
+        // Surface WHY this sub was matched so the human sees it before approving (was audit-only).
+        // Recommendation-only — the human still approves/rejects each campaign (§2). REJECT prospects
+        // are skipped above, so their reasoning stays audit-only by design.
+        aiMatchScore: score.score,
+        aiCapabilityMatch: String(score.capabilityMatch), // numeric column ⇒ string
+        aiStrengths: score.strengths,
+        aiGaps: score.gaps,
+        aiRecommendation: score.recommendation,
       })
       .returning({ id: outreachCampaigns.id });
 
@@ -666,14 +679,24 @@ export async function rankQuotes(
     if (!validIds.has(r.quoteId)) continue; // ignore any id the model invented
     await tx
       .update(vendorQuotes)
-      .set({ aiRank: r.rank, aiRationale: r.rationale, evaluatedAt: new Date() })
+      // Persist the per-quote score + risks (were discarded) alongside the existing rank/rationale.
+      // Operator-only (0012 withholds ai_score/ai_risks from the vendor role); display only.
+      .set({
+        aiRank: r.rank,
+        aiRationale: r.rationale,
+        aiScore: String(r.score), // numeric column ⇒ string
+        aiRisks: r.risks,
+        evaluatedAt: new Date(),
+      })
       .where(and(eq(vendorQuotes.orgId, orgId), eq(vendorQuotes.id, r.quoteId)));
     ranked += 1;
   }
 
   await tx
     .update(solicitations)
-    .set({ status: "PRICING_PENDING" })
+    // Surface the injection attempts the model flagged (was audit-only) so the operator sees that
+    // some quote text tried to manipulate the ranking and was ignored. Operator-only (0012).
+    .set({ status: "PRICING_PENDING", quoteInjectionAttempts: ranking.injectionAttemptsDetected })
     .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)));
 
   await writeAudit(tx, {
@@ -935,6 +958,9 @@ export async function draftProposalBid(
       selectedQuoteId: q.id,
       contractType: lines[0]!.contractType, // concrete (FFP/TM/FFP_MILESTONE) — no UNKNOWN allowed here
       status: "DRAFT", // submittedBy/At + counselReviewedBy/At stay NULL — the no-auto-submit invariant
+      // The drafted ProposalNarrative (prose only — display-only, gates nothing; §2/§6). No narrative
+      // value influences pricing/compliance/blockers, which remain deterministic.
+      narrative: pkg.narrative,
       pricingScenarios: pkg.pricing,
       complianceChecklist: {
         compliance: pkg.compliance,
@@ -1117,11 +1143,27 @@ export async function composeMorningBrief(
   if (to.length === 0) return { sent: false };
 
   const triageReadyRows = await tx
-    .select({ title: solicitations.title, score: solicitations.feasibilityScore })
+    .select({
+      title: solicitations.title,
+      score: solicitations.feasibilityScore,
+      recommendation: solicitations.triageRecommendation,
+    })
     .from(solicitations)
     .where(and(eq(solicitations.orgId, orgId), eq(solicitations.status, "TRIAGE_COMPLETE")))
     .orderBy(desc(solicitations.feasibilityScore))
     .limit(20);
+
+  // Read-only alert: any LIVE solicitation whose quotes carried injection attempts (operator signal).
+  const injectionRows = await tx
+    .select({ id: solicitations.id })
+    .from(solicitations)
+    .where(
+      and(
+        eq(solicitations.orgId, orgId),
+        inArray(solicitations.status, [...LIVE_STATUSES]),
+        sql`jsonb_array_length(${solicitations.quoteInjectionAttempts}) > 0`,
+      ),
+    );
 
   const awaitingRows = await tx
     .select({ id: outreachCampaigns.id, subject: outreachCampaigns.subject })
@@ -1141,11 +1183,19 @@ export async function composeMorningBrief(
     to,
     orgName: org?.name ?? "Burger Consulting",
     dateLabel: new Date().toISOString().slice(0, 10),
-    triageReady: triageReadyRows.map((r) => ({ label: r.title, detail: `feasibility ${r.score ?? "?"}` })),
+    triageReady: triageReadyRows.map((r) => ({
+      label: r.title,
+      detail: `feasibility ${r.score ?? "?"}${r.recommendation ? ` · ${r.recommendation}` : ""}`,
+    })),
     awaitingApproval: awaitingRows.map((r) => ({ label: r.subject })),
     rankedQuotes: rankedRecent.length,
     deadlines,
     arOverdue,
+    injectionAlert:
+      injectionRows.length > 0
+        ? `${injectionRows.length} live solicitation(s) had quote(s) that attempted to influence the AI ` +
+          `ranking — flagged and ignored. Review the rankings before relying on them.`
+        : undefined,
     approvalsUrl: `${appBaseUrl()}/admin/approvals`,
   });
 

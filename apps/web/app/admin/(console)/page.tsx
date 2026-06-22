@@ -18,11 +18,13 @@ import {
   lte,
   outreachCampaigns,
   solicitations,
+  sql,
   withOrg,
 } from "@hermes/db";
 
-import { Card, PageHeader, Section, Stat } from "@/components/ui/console";
+import { Badge, Card, PageHeader, Section, Stat } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
+import { recommendationLabel, recommendationTone } from "@/lib/admin-board";
 import { requireAdmin } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
@@ -51,11 +53,25 @@ export default async function AdminHome(): Promise<JSX.Element> {
         agency: solicitations.agency,
         zeroFloatFit: solicitations.zeroFloatFit,
         feasibilityScore: solicitations.feasibilityScore,
+        recommendation: solicitations.triageRecommendation,
       })
       .from(solicitations)
       .where(and(eq(solicitations.orgId, orgId), eq(solicitations.status, "TRIAGE_COMPLETE")))
       .orderBy(desc(solicitations.feasibilityScore))
       .limit(5);
+
+    // Read-only signal: live solicitations whose quotes carried injection attempts (flagged + ignored).
+    const injection = await tx
+      .select({ id: solicitations.id, title: solicitations.title })
+      .from(solicitations)
+      .where(
+        and(
+          eq(solicitations.orgId, orgId),
+          inArray(solicitations.status, [...LIVE_STATUSES]),
+          sql`jsonb_array_length(${solicitations.quoteInjectionAttempts}) > 0`,
+        ),
+      )
+      .limit(10);
 
     const [pendingOutreach] = await tx
       .select({ n: count() })
@@ -103,6 +119,7 @@ export default async function AdminHome(): Promise<JSX.Element> {
       pricing,
       deadlines,
       arOverdue: arOverdue?.n ?? 0,
+      injection,
     };
   });
 
@@ -112,6 +129,24 @@ export default async function AdminHome(): Promise<JSX.Element> {
         title="Admin Console"
         lede={`Morning brief for ${session.user.email}. Nothing here is sent or advanced without your explicit approval.`}
       />
+
+      {brief.injection.length > 0 && (
+        <Card className={c.blockerCard} testId="injection-alert">
+          <strong>
+            ⚠ {brief.injection.length} live solicitation(s) had quote(s) that attempted to influence the
+            AI ranking — flagged and ignored. Review before relying on the rankings.
+          </strong>
+          <ul className={c.bulletList}>
+            {brief.injection.map((s) => (
+              <li key={s.id}>
+                <Link href={`/admin/solicitations/${s.id}`} className={c.linkish}>
+                  {s.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <div className={c.statGrid}>
         <Stat label="Awaiting sourcing decision" value={brief.triaged.length} />
@@ -150,9 +185,16 @@ export default async function AdminHome(): Promise<JSX.Element> {
               <Card as="li" key={s.id} size="sm" className={c.hoverable}>
                 <div className={c.rowBetween}>
                   <div>
-                    <Link href={`/admin/solicitations/${s.id}`} className={c.linkish}>
-                      {s.title}
-                    </Link>
+                    <div className={c.row}>
+                      <Link href={`/admin/solicitations/${s.id}`} className={c.linkish}>
+                        {s.title}
+                      </Link>
+                      {s.recommendation && (
+                        <Badge tone={recommendationTone(s.recommendation)}>
+                          {recommendationLabel(s.recommendation)}
+                        </Badge>
+                      )}
+                    </div>
                     <div className={c.metaMono}>
                       {s.agency ?? "—"} · fit {s.zeroFloatFit ?? "?"}
                     </div>

@@ -73,6 +73,7 @@ tells you which is which.
 - **Phase 4:** tests proving the gate (triage sends zero emails; outreach only after approval; SSRF rejected). Wire SAM.gov response shape to the live API.
 - **Phase 5:** the vendor dashboard UI (authenticated CRUD behind `requireVendor()`), the `/quote` + `/optout` pages that call the provided actions, the negative-test suite.
 - **Phase 6:** the admin dashboard + pricing decision brief UI + bid assembly, calling `compliance.ts`. **GATED on counsel** (see below).
+- **Post-build (branch `burgergov-ui`):** the AI outputs the pipeline was dropping (triage summary/recommendation, per-quote AI score + risks, quote-injection flags, prospect match reasoning, proposal narrative) are persisted and surfaced **read-only** on the console — drizzle migration `0004_tearful_sister_grimm.sql` (+ `ai_recommendation` enum) and the column-level grants `manual/0012_ai_field_grants.sql` (operator-only fields withheld from the vendor/token roles). Advisory + display-only; gates nothing.
 - **Phase 7:** marketing site, CSP/headers, rate limits, Sentry + external heartbeat, go-live checklist.
 
 ## Open dependencies (yours to close)

@@ -197,6 +197,15 @@ These modules are decision-support, not magic. Build them to these honest specs.
 - SSRF guards on any server-side document fetch: https-only + host allowlist + size/content-type checks.
 - React Email autoescaping on all outbound mail (no HTML injection).
 - Append-only `audit_log` on every autonomous write and every approval.
+- **Operator-only AI fields are column-grant isolated (`migrations/manual/0012_ai_field_grants.sql`).** The
+  advisory AI outputs surfaced on the console — `solicitations.triage_summary` / `triage_recommendation` /
+  `quote_injection_attempts`, `vendor_quotes.ai_score` / `ai_risks`, and `proposals.narrative` — live on
+  tables the low-trust `hermes_token` / `hermes_vendor` roles can already `SELECT`. A column-level `REVOKE`
+  cannot restrict a role that holds table-wide `SELECT`, so `0012` **REVOKEs the table `SELECT` and re-GRANTs
+  `SELECT` only on the non-operator columns** — the operator-only AI fields never reach a vendor/token query.
+  Fail-closed for future columns (a newly-added column is unreadable by those roles until explicitly listed in
+  `0012`). It runs **last** (`0004`/`0010` re-grant table-wide on every run); `schema.guards` asserts it via
+  `has_column_privilege`, and `negative.ai-field-isolation.test.ts` proves the runtime 42501 denial.
 - Idempotent jobs; failure alerting (Sentry + email) plus an **external** dead-man's-switch on the cron
   heartbeat (an app that is down cannot alert on itself).
 - No secrets in repo; gitleaks in CI.
@@ -269,6 +278,48 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
+
+### Post-build — Surface the dropped AI outputs on the console (branch `burgergov-ui`) — **CODE COMPLETE** (2026-06-22)
+
+A post-build console enhancement on `burgergov-ui` (not a numbered phase): the AI pipeline generated structured
+output that never reached the operator — several fields were written only to `audit_log`, several discarded
+entirely. They are now **persisted in real columns, written in the workflow, and rendered read-only** on the
+real screens, with every HITL / RLS / audit / fail-closed invariant preserved. **Prime Directive §2 untouched:**
+every surfaced field is **advisory + display-only — it gates nothing**; pricing/compliance/live-submission stay
+deterministic and the narrative is prose-only.
+
+**New columns + enum** (drizzle migration `0004_tearful_sister_grimm.sql` + `meta/0004_snapshot.json`):
+- `solicitations`: `triage_summary text`, `triage_recommendation` (**new `ai_recommendation` enum** —
+  PURSUE / REJECT / HUMAN_REVIEW), `quote_injection_attempts jsonb` (`$type<string[]>`).
+- `outreach_campaigns`: `ai_match_score integer` (CHECK 1–100), `ai_capability_match numeric(4,3)` (CHECK 0–1),
+  `ai_strengths jsonb`, `ai_gaps jsonb`, `ai_recommendation`.
+- `vendor_quotes`: `ai_score numeric(5,2)` (CHECK 0–100), `ai_risks jsonb`.
+- `proposals`: `narrative jsonb`.
+
+**Isolation (the load-bearing find) — `manual/0012_ai_field_grants.sql`** (see §7): `hermes_token` /
+`hermes_vendor` already hold table-wide `SELECT` on `solicitations` / `vendor_quotes` / `proposals`, and a
+column-level `REVOKE` can't restrict a role with a table grant — so `0012` REVOKEs the table `SELECT` and
+re-GRANTs only the non-operator columns. Wired into `migrate.ts` as the LAST step (after `0011`); fail-closed
+for future columns. `outreach_campaigns` has no vendor/token grant, so its AI match fields are safe by
+construction.
+
+**Workflow writes** (`packages/inngest/src/logic.ts`, deterministic — no model output enters a gate): triage
+sets `triageSummary`/`triageRecommendation`; `onSourcingApproved` persists the five `ai_*` match fields per
+campaign (REJECT prospects still skipped); `rankQuotes` sets per-quote `aiScore`/`aiRisks` + persists
+`injectionAttemptsDetected` to `solicitations.quote_injection_attempts`; `draftProposalBid` adds
+`narrative: pkg.narrative`. Morning brief gained recommendation text + a quote-injection alert.
+
+**UI** (read-only, JSX-autoescaped): solicitation detail (recommendation badge + triage summary, injection
+callout, per-quote AI score + risks), approvals + `ApprovalCohort` (recommendation + match score / capability %
++ strengths/gaps), proposal brief ("Proposal narrative" above pricing under the watermark), morning brief page
++ email (recommendation badges + injection alert). Shared `recommendationTone`/`recommendationLabel` in
+`apps/web/lib/admin-board.ts`.
+
+**Verification:** `pnpm turbo typecheck lint build` green; `@hermes/db` drift guards updated in lockstep
+(EXPECTED_COLUMNS/ENUMS/CHECKS; `schema.guards` switched to `has_column_privilege`) + new
+`negative.ai-field-isolation.test.ts` (vendor/token denied operator-only columns → 42501, safe browse columns
+still read); `@hermes/inngest` persistence + injection round-trip asserted on a real DB. The design-handoff
+reference (`design_handoff_console_backend_wiring/`) was stale and was re-synced to match.
 
 ### Phase 7 — PR 7c: Go-live — Fly release_command migrations + health check + runbook — **CODE COMPLETE** (2026-06-17)
 

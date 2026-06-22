@@ -30,6 +30,15 @@ before any real bid. Everything ships `pendingCounsel`; the no-auto-submit + cou
 block a live submission until `readyForLiveSubmission`. The Prime Directive (no autonomous outbound or
 state-advancing action — `CLAUDE.md` §2) is enforced throughout.
 
+**Post-build console enhancement (branch `burgergov-ui`):** the AI outputs the pipeline was previously
+dropping are now persisted and surfaced **read-only** on the operator console — triage `summary` +
+`recommendation`, per-quote AI `score` + `risks`, quote-injection flags, prospect match reasoning
+(`matchScore`/`capabilityMatch`/`strengths`/`gaps`), and the proposal `narrative`. New columns on
+`solicitations` / `outreach_campaigns` / `vendor_quotes` / `proposals` + the `ai_recommendation` enum (drizzle
+migration `0004_tearful_sister_grimm.sql`); operator-only fields are isolated from the `hermes_token` /
+`hermes_vendor` roles by the column-level grants in `manual/0012_ai_field_grants.sql`. Every surfaced field is
+**advisory + display-only** — it gates nothing (Prime Directive §2 intact).
+
 ---
 
 ## 0. Verified facts baked into this plan (as of June 2026)

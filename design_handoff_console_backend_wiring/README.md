@@ -21,7 +21,7 @@ Two integration styles are fine, pick what fits the repo:
 
 - `index.html` — app shell: **hash router**, theme state (persisted to `localStorage["bg-theme"]`), ambient background. Defines `VALID` routes, an `App()` with `go(route)` (navigation) and `act(msg)` (fires a success toast). Renders one view per route.
 - `console-auth.jsx` — `AppNav` (top nav, role label, sign-out), `PageHeader`, and auth screens: `AuthScreen` (split login, admin & vendor), `TotpScreen`, `EnrollScreen` (2FA setup w/ QR), `InviteOnboard` (invite-token account setup).
-- `console-views-admin.jsx` — `AdminHome` (morning brief), `SolicitationsBoard` (kanban), `SolicitationDetail` (triage + AI-ranked quotes), `ProposalBrief` (priced bid decision-brief + blockers + review workflow), `ApprovalsView`, `ApprovalDetail` (split-view + **long-press release gate**), `InquiriesView`, `ProspectsView`, `VendorsView`.
+- `console-views-admin.jsx` — `AdminHome` (morning brief + quote-injection alert + triage `recommendation` badges), `SolicitationsBoard` (kanban), `SolicitationDetail` (triage `recommendation` + `summary`, injection callout, AI-ranked quotes with per-quote `score` + `risks`), `ProposalBrief` (priced bid decision-brief + AI `narrative` + blockers + review workflow), `ApprovalsView` (match score / capability % / `recommendation`), `ApprovalDetail` (split-view vendor cohort with match reasoning + **long-press release gate**), `InquiriesView`, `ProspectsView`, `VendorsView`. The advisory AI fields are display-only (see HITL invariant 5).
 - `console-views-vendor.jsx` — `VendorHome`, `RfqsView`, `QuoteSubmitView` (line items + upload), `MyQuotesView`, `QuoteView`, `ContractsView`, `DocumentsView`.
 - `data.js` — **`window.CONSOLE`**: the synthetic dataset. **This is the contract.** Every shape here is what a screen expects back from the backend. Comment in-file: *"Synthetic but shaped like the real hermes2 schema."*
 - `console.css` — layout/styling (theme-aware, reads DS tokens).
@@ -49,12 +49,12 @@ Two integration styles are fine, pick what fits the repo:
 ### Admin — reads
 | Screen | Data key in `data.js` | Intended call |
 |---|---|---|
-| Morning brief (`AdminHome`) | `brief.stats`, `triaged`, `inquiries` (NEW), `deadlines` | `GET /admin/brief` |
-| Solicitations board (`SolicitationsBoard`) | `board` (5 columns) | `GET /admin/solicitations?view=board` |
-| Solicitation detail (`SolicitationDetail`) | `solicitationDetail` (+ `quotes` AI-ranked) | `GET /admin/solicitations/:id` |
-| Proposal brief (`ProposalBrief`) | `proposal` (scenarios, compliance, bidChecklist, blockers) | `GET /admin/solicitations/:id/proposal` |
-| Approvals (`ApprovalsView`) | `triaged`, `outreach` | `GET /admin/approvals` |
-| Approval detail (`ApprovalDetail`) | `approvalDetail` (sourceLines, evalLines) | `GET /admin/approvals/:id` |
+| Morning brief (`AdminHome`) | `brief.stats`, `brief.injection` (quote-injection alert), `triaged` (+ `recommendation`), `inquiries` (NEW), `deadlines` | `GET /admin/brief` |
+| Solicitations board (`SolicitationsBoard`) | `board` (5 columns; Triage items carry `recommendation`) | `GET /admin/solicitations?view=board` |
+| Solicitation detail (`SolicitationDetail`) | `solicitationDetail` — triage `recommendation` + `summary`, `injectionAttempts[]`, `scope`, and `quotes` AI-ranked with per-quote `score` + `risks[]` | `GET /admin/solicitations/:id` |
+| Proposal brief (`ProposalBrief`) | `proposal` (scenarios, compliance, bidChecklist, blockers, `narrative` — exec summary / technical / management / past-performance / assumptions) | `GET /admin/solicitations/:id/proposal` |
+| Approvals (`ApprovalsView`) | `triaged` (+ `recommendation`), `outreach` (+ `matchScore`, `capabilityMatch`, `recommendation`) | `GET /admin/approvals` |
+| Approval detail (`ApprovalDetail`) | `approvalDetail` (`sourceLines`, `recipients[]` — per-vendor `recommendation` / `matchScore` / `capabilityMatch` / `strengths` / `gaps` / `lowConfidence`) | `GET /admin/approvals/:id` |
 | Inquiries (`InquiriesView`) | `inquiries` | `GET /admin/inquiries` |
 | Prospects (`ProspectsView`) | `prospects` | `GET /admin/prospects` |
 | Vendors (`VendorsView`) | `vendors` (qualifiedProspects, pendingVendors, inviteLink) | `GET /admin/vendors` |
@@ -94,8 +94,8 @@ These are load-bearing product guarantees — keep them through the wiring:
 2. **Live submission is gated.** "Mark ready" and "Submit to agency" stay disabled while `blockers[]` is non-empty (CAGE pending, counsel signature, specialist cert, etc.).
 3. **The release gate requires deliberate intent** — the 1.5s long-press; releasing early cancels and dispatches nothing.
 4. **The app never emails on its own.** Invite links are generated and shown for the admin to send.
-5. **AI outputs are recommendations.** Triage scores, rankings, and the "AI evaluation" pane are editable/overridable; low-confidence rows are flagged and require human confirmation.
-6. **Vendor-to-vendor isolation.** A subcontractor only ever sees their own quotes/docs; quotes are never exposed across vendors.
+5. **AI outputs are recommendations.** Triage scores, the `recommendation` badge (PURSUE / HUMAN_REVIEW / REJECT), the triage `summary`, per-prospect match reasoning (`matchScore` / `capabilityMatch` / `strengths` / `gaps`), per-quote `score` + `risks`, the quote-injection alerts, and the proposal `narrative` are **advisory and display-only** — they are surfaced to inform the operator and **gate nothing**. The human decides; low-confidence rows are flagged and require human confirmation. Nothing here picks a number, advances a state, or submits anything.
+6. **Vendor-to-vendor isolation, and operator-only AI fields.** A subcontractor only ever sees their own quotes/docs; quotes are never exposed across vendors. The operator-only AI fields above (triage `summary`/`recommendation`, quote-`injection` flags, proposal `narrative`, per-quote `score`/`risks`) are **never readable by the vendor or token roles** — the repo enforces this with column-level grants (`migrations/manual/0012_ai_field_grants.sql`: table-wide `SELECT` revoked, then re-granted only on the non-operator columns).
 
 ## State & data-fetching guidance
 - Current state is component-local + the global `window.CONSOLE`. Replace with the repo's data layer (React Query / SWR / RTK Query / server components — whatever the repo uses).

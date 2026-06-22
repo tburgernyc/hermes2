@@ -3,6 +3,20 @@ const { Badge, Button, Field } = window.BurgerGovDesignSystem_d0c3b4;
 const CON = window.CONSOLE;
 const { PageHeader } = window.ConsoleAuth;
 
+// Advisory ai_recommendation enum → Badge tone / label. DISPLAY ONLY — the recommendation never
+// gates anything; the human decides. PURSUE → success, HUMAN_REVIEW → warn, REJECT → neutral.
+// Mirrors apps/web/lib/admin-board.ts (recommendationTone / recommendationLabel).
+function recTone(r) {
+  if (r === "PURSUE") return "success";
+  if (r === "HUMAN_REVIEW") return "warn";
+  return "neutral";
+}
+function recLabel(r) {
+  if (!r) return "—";
+  const s = r.toLowerCase().replace(/_/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function StatGrid({ stats }) {
   return (
     <div className="statGrid">
@@ -21,6 +35,18 @@ function AdminHome({ go }) {
   return (
     <main>
       <PageHeader title="Morning brief" lede="Everything awaiting a human decision, as of 06:00 EDT. Rendering this page never advances any state." />
+
+      {CON.brief.injection && CON.brief.injection.length ? (
+        <div className="card blockerCard" style={{ marginBottom: "var(--space-6)" }}>
+          <strong>⚠ {CON.brief.injection.length} live solicitation(s) had quote(s) that attempted to influence the AI ranking — flagged and ignored. Review before relying on the rankings.</strong>
+          <ul className="bulletList">
+            {CON.brief.injection.map((s) => (
+              <li key={s.id}><span className="linkish" onClick={() => go("solicitation-detail")}>{s.title}</span></li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <StatGrid stats={CON.brief.stats} />
 
       <section className="section">
@@ -33,7 +59,10 @@ function AdminHome({ go }) {
             <li key={s.id} className="card cardSm hoverable">
               <div className="rowBetween">
                 <div>
-                  <span className="linkish" onClick={() => go("solicitation-detail")}>{s.title}</span>
+                  <div className="row">
+                    <span className="linkish" onClick={() => go("solicitation-detail")}>{s.title}</span>
+                    {s.recommendation ? <Badge tone={recTone(s.recommendation)}>{recLabel(s.recommendation)}</Badge> : null}
+                  </div>
                   <div className="metaMono">{s.agency} · fit {s.fit}</div>
                 </div>
                 <div className="row">
@@ -93,6 +122,7 @@ function SolicitationsBoard({ go, onAct }) {
                   <div className="metaMono">{s.agency}</div>
                   <div className="row" style={{ marginTop: "var(--space-2)" }}>
                     <Badge>{s.status}</Badge>
+                    {s.recommendation ? <Badge tone={recTone(s.recommendation)}>{recLabel(s.recommendation)}</Badge> : null}
                     <span className="metaMono">feas {s.feasibility} · fit {s.fit}</span>
                   </div>
                   {s.gate ? (
@@ -117,13 +147,23 @@ function SolicitationDetail({ go, onAct }) {
   return (
     <main>
       <PageHeader title={d.title} lede={`${d.agency} · ${d.status} · due ${d.deadline}`} back={{ label: "Solicitations", onClick: () => go("solicitations") }}
-        actions={<div className="row"><Badge tone="info">feasibility {d.feasibility}</Badge><Badge>{d.contractType}</Badge></div>} />
+        actions={<div className="row">{d.recommendation ? <Badge tone={recTone(d.recommendation)}>{recLabel(d.recommendation)}</Badge> : null}<Badge tone="info">feasibility {d.feasibility}</Badge><Badge>{d.contractType}</Badge></div>} />
+
+      {d.injectionAttempts && d.injectionAttempts.length ? (
+        <div className="card blockerCard" style={{ marginBottom: "var(--space-6)" }}>
+          <strong>⚠ {d.injectionAttempts.length} quote(s) attempted to influence the AI ranking and were ignored.</strong>
+          <ul className="bulletList">{d.injectionAttempts.map((a, i) => <li key={i}>{a}</li>)}</ul>
+        </div>
+      ) : null}
 
       <section className="section">
         <h2 className="sectionTitle" style={{ marginBottom: "var(--space-4)" }}>Triage recommendation</h2>
         <div className="card">
-          <div className="metaMono" style={{ marginBottom: "var(--space-3)" }}>Notice {d.notice} · NAICS {d.naics} · fit {d.fit}</div>
-          <p style={{ margin: 0, color: "var(--studio-ink)", lineHeight: 1.6 }}>{d.scope}</p>
+          <div className="row" style={{ marginBottom: "var(--space-3)" }}>
+            {d.recommendation ? <Badge tone={recTone(d.recommendation)}>{recLabel(d.recommendation)}</Badge> : null}
+            <span className="metaMono">Notice {d.notice} · NAICS {d.naics} · fit {d.fit}</span>
+          </div>
+          {d.summary ? <p className="rationale" style={{ margin: 0 }}>{d.summary}</p> : null}
           {d.concerns.length ? (
             <div style={{ marginTop: "var(--space-4)" }}>
               <strong>Flagged concerns</strong>
@@ -133,6 +173,13 @@ function SolicitationDetail({ go, onAct }) {
         </div>
       </section>
 
+      {d.scope ? (
+        <section className="section">
+          <h2 className="sectionTitle" style={{ marginBottom: "var(--space-4)" }}>Scope (from SAM.gov)</h2>
+          <div className="card"><p style={{ margin: 0, color: "var(--studio-ink)", lineHeight: 1.6 }}>{d.scope}</p></div>
+        </section>
+      ) : null}
+
       <section className="section">
         <h2 className="sectionTitle" style={{ marginBottom: "var(--space-4)" }}>Subcontractor quotes — AI-ranked <span className="sectionCount">({d.quotes.length})</span></h2>
         <ul className="list">
@@ -140,7 +187,11 @@ function SolicitationDetail({ go, onAct }) {
             <li key={q.id} className="card">
               <div className="rowBetween">
                 <div>
-                  <div className="row"><span className="rankPill">#{q.rank}</span><strong>{q.vendor}</strong></div>
+                  <div className="row">
+                    <span className="rankPill">#{q.rank}</span>
+                    <strong>{q.vendor}</strong>
+                    {q.score != null ? <Badge tone="info">AI score {Math.round(q.score)}</Badge> : null}
+                  </div>
                   <div className="metaMono">{q.status} · {q.total}</div>
                 </div>
                 <div className="row">
@@ -149,6 +200,12 @@ function SolicitationDetail({ go, onAct }) {
                 </div>
               </div>
               <div className="rationale">{q.rationale}</div>
+              {q.risks && q.risks.length ? (
+                <div className="rationale">
+                  <strong>Risks flagged</strong>
+                  <ul className="bulletList">{q.risks.map((risk, i) => <li key={i}>{risk}</li>)}</ul>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -179,6 +236,20 @@ function ProposalBrief({ go, onAct }) {
     <main>
       <PageHeader title="Bid decision-brief" lede={`${p.title} · status ${p.status} · ${p.contractType}${p.provisional ? " · PROVISIONAL (dry-run baseline)" : ""}`} back={{ label: "Solicitation", onClick: () => go("solicitation-detail") }} />
       {p.watermark ? <div style={{ marginBottom: "var(--space-6)" }}><Badge tone="warn">{p.watermark}</Badge></div> : null}
+
+      {p.narrative ? (
+        <section className="section">
+          <h2 className="sectionTitle" style={{ marginBottom: "var(--space-4)" }}>Proposal narrative</h2>
+          <div className="card">
+            <p className="meta" style={{ marginTop: 0 }}>AI-drafted prose for human + counsel review. Display only — it informs no pricing, compliance, or live-submission gate.</p>
+            {p.narrative.executiveSummary ? (<><strong>Executive summary</strong><p className="rationale">{p.narrative.executiveSummary}</p></>) : null}
+            {p.narrative.technicalApproach ? (<><strong>Technical approach</strong><p className="rationale">{p.narrative.technicalApproach}</p></>) : null}
+            {p.narrative.managementApproach ? (<><strong>Management approach</strong><p className="rationale">{p.narrative.managementApproach}</p></>) : null}
+            {p.narrative.pastPerformanceNarrative ? (<><strong>Past performance</strong><p className="rationale">{p.narrative.pastPerformanceNarrative}</p></>) : null}
+            {p.narrative.assumptions && p.narrative.assumptions.length ? (<><strong>Assumptions</strong><ul className="bulletList">{p.narrative.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul></>) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="section">
         <h2 className="sectionTitle" style={{ marginBottom: "var(--space-4)" }}>Pricing scenarios <span className="sectionCount">({p.scenarios.length})</span></h2>
@@ -244,7 +315,10 @@ function ApprovalsView({ go, onAct }) {
             <li key={s.id} className="card cardSm hoverable">
               <div className="rowBetween">
                 <div>
-                  <span className="linkish" onClick={() => go("approval-detail")}>{s.title}</span>
+                  <div className="row">
+                    <span className="linkish" onClick={() => go("approval-detail")}>{s.title}</span>
+                    {s.recommendation ? <Badge tone={recTone(s.recommendation)}>{recLabel(s.recommendation)}</Badge> : null}
+                  </div>
                   <div className="metaMono">{s.agency} · feasibility {s.feasibility} · fit {s.fit}</div>
                 </div>
                 <div className="row">
@@ -263,7 +337,16 @@ function ApprovalsView({ go, onAct }) {
           {CON.outreach.map((o) => (
             <li key={o.id} className="card cardSm">
               <div className="rowBetween">
-                <div><strong>{o.subject}</strong><div className="metaMono">to {o.prospect}</div></div>
+                <div>
+                  <div className="row">
+                    <strong>{o.subject}</strong>
+                    {o.recommendation ? <Badge tone={recTone(o.recommendation)}>{recLabel(o.recommendation)}</Badge> : null}
+                  </div>
+                  <div className="metaMono">to {o.prospect}</div>
+                  {o.matchScore != null || o.capabilityMatch != null ? (
+                    <div className="metaMono">AI match {o.matchScore != null ? o.matchScore : "—"}/100{o.capabilityMatch != null ? ` · capability ${Math.round(o.capabilityMatch * 100)}%` : ""}</div>
+                  ) : null}
+                </div>
                 <div className="row">
                   <Button size="sm" onClick={() => onAct("Outreach approved & sent.")}>Approve &amp; send</Button>
                   <Button size="sm" variant="ghost" onClick={() => onAct("Outreach rejected.")}>Reject</Button>
@@ -308,28 +391,33 @@ function ApprovalDetail({ go, onAct }) {
   return (
     <main>
       <PageHeader title={d.title} lede={`${d.agency} · Notice ${d.notice}`} back={{ label: "Approvals", onClick: () => go("approvals") }}
-        actions={<Badge tone="info">feasibility {d.feasibility}</Badge>} />
+        actions={<div className="row">{d.recommendation ? <Badge tone={recTone(d.recommendation)}>{recLabel(d.recommendation)}</Badge> : null}<Badge tone="info">feasibility {d.feasibility}</Badge></div>} />
       <div className="split" style={{ marginBottom: "var(--space-8)" }}>
         <div className="pane">
           <span className="paneLabel">Source solicitation · locked</span>
           {d.sourceLines.map((l, i) => <div key={i} className="docLine">{l}</div>)}
         </div>
         <div className="pane">
-          <span className="paneLabel">AI evaluation · editable</span>
-          <div className="tableWrap" style={{ border: "none", boxShadow: "none", background: "transparent" }}>
-            <table className="table">
-              <thead><tr><th>Line item</th><th>Markup</th><th>Vendor / note</th></tr></thead>
-              <tbody>
-                {d.evalLines.map((e, i) => (
-                  <tr key={i}>
-                    <td>{e.item}</td>
-                    <td>{e.flag ? <Badge tone="warn">{e.markup}</Badge> : <Badge>{e.markup}</Badge>}</td>
-                    <td className={e.flag ? "docLine flag" : ""} style={{ border: "none", padding: 0 }}>{e.vendor}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <span className="paneLabel">Vendors to contact · review before sending</span>
+          <ul className="list">
+            {d.recipients.map((r) => (
+              <li key={r.id} className="card cardSm">
+                <div className="rowBetween">
+                  <strong>{r.prospect}</strong>
+                  <div className="row">
+                    {r.recommendation ? <Badge tone={recTone(r.recommendation)}>{recLabel(r.recommendation)}</Badge> : null}
+                    <Badge tone={r.lowConfidence ? "warn" : "neutral"}>match {r.matchScore != null ? r.matchScore : "—"}/100</Badge>
+                  </div>
+                </div>
+                {r.matchScore != null || r.capabilityMatch != null ? (
+                  <div className="metaMono">AI match for this solicitation: {r.matchScore != null ? r.matchScore : "—"}/100{r.capabilityMatch != null ? ` · capability ${Math.round(r.capabilityMatch * 100)}%` : ""}</div>
+                ) : null}
+                {r.strengths && r.strengths.length ? <div className="metaMono"><strong>Strengths:</strong> {r.strengths.join("; ")}</div> : null}
+                {r.gaps && r.gaps.length ? <div className="metaMono"><strong>Gaps:</strong> {r.gaps.join("; ")}</div> : null}
+                {r.lowConfidence ? <div className="docLine flag" style={{ marginTop: "var(--space-2)" }}>Low confidence — confirm before this vendor can be sent to.</div> : null}
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
       <div className="card">

@@ -56,6 +56,13 @@ risk assessment:
 In short: the software drafts and analyzes; the human decides and acts; counsel reviews every bid before
 submission. No certification, contact, price commitment, or submission happens without a person.
 
+The operator's console now **displays the AI's reasoning** alongside each item — a triage recommendation and
+summary, a per-subcontractor match score and strengths/gaps, a per-quote AI score and flagged risks, alerts
+when a submitted quote tried to manipulate the evaluation, and a draft proposal narrative. These are
+**advisory and read-only**: they inform the human's judgment but **gate nothing** — they do not pick a price,
+advance a workflow, approve outreach, or submit anything. The human still makes every decision, and the
+draft narrative is reviewed by a person (and by you, counsel) before any bid is submitted.
+
 ---
 
 ## 3. Why we need your input now

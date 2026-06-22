@@ -261,9 +261,13 @@ On every `fly deploy`, Fly runs that command in a **one-off Machine** built from
 new Machine takes traffic**. It is the SAME `migrate.ts` the CI `db`/`inngest`/`web-e2e` jobs run on every PR
 — compiled (the `migrator` Docker stage) into a self-contained bundle (its own `node_modules` with
 `pg`/`drizzle-orm`/`dotenv`, the built `dist/migrate.js`, and the `migrations/` SQL tree). It connects as
-**`MIGRATION_DATABASE_URL`** (the Neon **owner** role) and applies, in order: extensions → roles → tables →
-guards (triggers + RLS) → grants → the auth/token/vendor role migrations, then **asserts** the
-`sync_line_item_contract_type` trigger is still `SECURITY DEFINER` (a security post-condition).
+**`MIGRATION_DATABASE_URL`** (the Neon **owner** role) and applies, in order: extensions → roles → tables
+(incl. the drizzle migration `0004_tearful_sister_grimm.sql` — the surfaced-AI-output columns + the
+`ai_recommendation` enum) → guards (triggers + RLS) → grants → the auth/token/vendor role migrations → the
+**AI-field column grants** (`manual/0012_ai_field_grants.sql` — **runs LAST**: it REVOKEs table-wide `SELECT`
+on `solicitations`/`vendor_quotes`/`proposals` from `hermes_token`/`hermes_vendor` and re-GRANTs `SELECT` only
+on the non-operator columns, so it must follow `0004`/`0010` which re-grant table-wide each run), then
+**asserts** the `sync_line_item_contract_type` trigger is still `SECURITY DEFINER` (a security post-condition).
 
 - **Fail-closed deploy.** A non-zero exit **aborts the deploy** — Fly does not roll the new release out and
   the previous release keeps serving. A broken or partial migration therefore never reaches production.

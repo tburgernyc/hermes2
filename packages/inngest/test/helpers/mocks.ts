@@ -5,7 +5,7 @@
  */
 import { vi, type Mock } from "vitest";
 
-import { assembleBidPackage } from "@hermes/ai";
+import { assembleBidPackage, EMBED_DIM } from "@hermes/ai";
 import type { ProposalNarrative, ProspectScore, SowBrief, TriageVerdict } from "@hermes/ai";
 
 import type { LogicDeps } from "../../src/logic.js";
@@ -49,12 +49,24 @@ export interface TestDeps {
   sendOutreachEmail: Mock;
   sendBriefEmail: Mock;
   fetchDoc: Mock;
+  embed: Mock;
 }
 
-export function makeDeps(ai: Partial<LogicDeps["ai"]> = {}): TestDeps {
+/** Per-case overrides for the non-AI collaborators (the sourcing tests inject a SAM/USASpending fetch). */
+export interface DepsOverrides {
+  fetchDoc?: LogicDeps["fetchDoc"];
+  embed?: LogicDeps["embed"];
+}
+
+export function makeDeps(ai: Partial<LogicDeps["ai"]> = {}, overrides: DepsOverrides = {}): TestDeps {
   const sendOutreachEmail = vi.fn(async () => ({ id: "email_test" }));
   const sendBriefEmail = vi.fn(async () => ({ id: "brief_test" }));
-  const fetchDoc = vi.fn(async () => ({ bytes: new Uint8Array(), contentType: "application/json" }));
+  const fetchDoc = vi.fn(
+    overrides.fetchDoc ?? (async () => ({ bytes: new Uint8Array(), contentType: "application/json" })),
+  );
+  // Default embedding: a fixed EMBED_DIM vector (valid for the pgvector column). Override per-case to vary
+  // the cosine ranking. Tests never call the real Voyage API (no VOYAGE_API_KEY — CLAUDE.md §4).
+  const embed = vi.fn(overrides.embed ?? (async () => new Array(EMBED_DIM).fill(0) as number[]));
 
   const fullAi: LogicDeps["ai"] = {
     triageSolicitation: ai.triageSolicitation ?? (async () => DEFAULT_TRIAGE),
@@ -89,9 +101,10 @@ export function makeDeps(ai: Partial<LogicDeps["ai"]> = {}): TestDeps {
   };
 
   return {
-    deps: { ai: fullAi, sendOutreachEmail, sendBriefEmail, fetchDoc },
+    deps: { ai: fullAi, embed, sendOutreachEmail, sendBriefEmail, fetchDoc },
     sendOutreachEmail,
     sendBriefEmail,
     fetchDoc,
+    embed,
   };
 }

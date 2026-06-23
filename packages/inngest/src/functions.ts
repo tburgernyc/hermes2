@@ -11,7 +11,7 @@
  * (HERMES_ACTIVE_ORG_IDS — a deliberate single-tenant simplification; cross-tenant "list all orgs" needs
  * a scheduler read-role and is deferred). Event-triggered functions get orgId from the event payload.
  */
-import { getEngine } from "@hermes/ai";
+import { embed, getEngine } from "@hermes/ai";
 import { withOrg } from "@hermes/db";
 import { sendBriefEmail, sendOutreachEmail } from "@hermes/emails";
 
@@ -29,6 +29,7 @@ import {
   rankQuotes,
   runArFollowups,
   sendOutreach,
+  sourceSubcontractors,
   triage,
   type LogicDeps,
 } from "./logic.js";
@@ -38,7 +39,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Production deps: the live AI engine, Resend senders, and the SSRF-guarded fetch. Tests inject mocks. */
 function defaultDeps(): LogicDeps {
-  return { ai: getEngine(), sendOutreachEmail, sendBriefEmail, fetchDoc: safeFetchDocument };
+  return { ai: getEngine(), embed, sendOutreachEmail, sendBriefEmail, fetchDoc: safeFetchDocument };
 }
 
 /** Active orgs the crons operate on. Comma-separated UUIDs (HERMES_ACTIVE_ORG_IDS). */
@@ -99,6 +100,23 @@ export const onSourcingApprovedFn = inngest.createFunction(
         data: { orgId, outreachId: d.outreachId },
       });
     }
+  },
+);
+
+/* ========== OPERATOR-INITIATED — discover + pre-vet + score candidate subcontractors (advisory) ========== */
+// Triggered by hermes/subcontractors.requested (an admin "Find subcontractors" action). ADVISORY only: it
+// produces vendor_prospects (DISCOVERY) + scores — it sends nothing, advances no state, and arms no gate
+// (CLAUDE.md §2). Exclusion/inactive/no-NAICS-overlap is a deterministic HARD drop (§7).
+export const sourceSubcontractorsFn = inngest.createFunction(
+  { id: "source-subcontractors", retries: 2 },
+  { event: "hermes/subcontractors.requested" },
+  async ({ event, step }) => {
+    const { orgId, solicitationId, requestedBy } = event.data;
+    return step.run("source", () =>
+      withOrg(orgId, (tx) =>
+        sourceSubcontractors(tx, defaultDeps(), { orgId, solicitationId, requestedBy }),
+      ),
+    );
   },
 );
 
@@ -244,6 +262,7 @@ export const functions = [
   samScan,
   triageFn,
   onSourcingApprovedFn,
+  sourceSubcontractorsFn,
   outreachGateFn,
   draftProposalBidFn,
   quoteDetectorFn,

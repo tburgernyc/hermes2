@@ -27,6 +27,7 @@ import {
   gte,
   hasUnconfirmedCounselThresholds,
   inArray,
+  isNotNull,
   isNull,
   lte,
   outreachCampaigns,
@@ -39,12 +40,24 @@ import {
   vendorProspects,
   vendorQuoteLineItems,
   vendorQuotes,
+  type DiscoveryMetadata,
   type Tx,
 } from "@hermes/db";
 import { hashToken, mintToken } from "@hermes/core";
 import type { BriefItem, MorningBriefInput, OutreachEmailInput } from "@hermes/emails";
 
 import { writeAudit, type FetchResult } from "./safety.js";
+import {
+  buildPastPerformanceBody,
+  buildSamEntityUrl,
+  deriveCapabilitiesText,
+  MAX_CANDIDATES_PER_RUN,
+  parsePastPerformance,
+  parseSamEntities,
+  prevetEntity,
+  USASPENDING_AWARD_ENDPOINT,
+  type PastPerformance,
+} from "./sourcing.js";
 
 /* ----------------------------------- constants ----------------------------------- */
 
@@ -69,6 +82,8 @@ const LIVE_STATUSES = [
 /** Injected collaborators. Production wires the live engine / Resend / SSRF-guarded fetch; tests mock. */
 export interface LogicDeps {
   ai: Pick<Engine, "triageSolicitation" | "scoreProspect" | "draftSOW" | "evaluateQuotes" | "draftBid">;
+  /** Voyage embedding (capability⇄scope match). dim must equal @hermes/db EMBED_DIM or the helper fails closed. */
+  embed: (text: string) => Promise<number[]>;
   sendOutreachEmail: (input: OutreachEmailInput) => Promise<{ id?: string }>;
   sendBriefEmail: (input: MorningBriefInput) => Promise<{ id?: string }>;
   fetchDoc: (
@@ -603,6 +618,238 @@ export async function expireOutreach(
     entityType: "outreach_campaigns",
     entityId: outreachId,
   });
+}
+
+/* ===================================================================================
+ * SOURCE SUBCONTRACTORS (Phase B) — discover + deterministically pre-vet + 0–100 score candidate
+ * subcontractors for a solicitation. ADVISORY: it produces vendor_prospects (prospect_source DISCOVERY) +
+ * scores ONLY — it sends nothing, advances no state, and gates nothing (CLAUDE.md §2). Exclusion / inactive
+ * registration / no-NAICS-overlap is a DETERMINISTIC HARD DROP (§7) — the AI score never decides
+ * eligibility. Idempotent: dedupe on UEI / contact_email per org. Fail-closed: a connector failure throws
+ * (Inngest retries) and a row is inserted ONLY after embed + score succeed, so a failed candidate is simply
+ * absent — never a partial row that misrepresents a sub as vetted.
+ * =================================================================================== */
+
+/** Build a pgvector literal from an embedding. Bound as a parameter (never interpolated raw) downstream. */
+function toVectorLiteral(embedding: number[]): string {
+  return `[${embedding.join(",")}]`;
+}
+
+export interface SourcingResult {
+  status: "SOURCED" | "NOT_FOUND" | "NO_NAICS";
+  created: number;
+  excluded: number;
+  evaluated: number;
+}
+
+export async function sourceSubcontractors(
+  tx: Tx,
+  deps: LogicDeps,
+  args: { orgId: string; solicitationId: string; requestedBy: string },
+): Promise<SourcingResult> {
+  const { orgId, solicitationId, requestedBy } = args;
+
+  const apiKey = process.env.SAM_API_KEY ?? "";
+  if (!apiKey) {
+    throw new Error(
+      "SAM_API_KEY is not set — refusing to query the SAM.gov Entity API with an empty key (no fake " +
+        "candidates). Set SAM_API_KEY (with Entity-API entitlement) in the runtime environment.",
+    );
+  }
+
+  const [sol] = await tx
+    .select()
+    .from(solicitations)
+    .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)))
+    .limit(1);
+  if (!sol) return { status: "NOT_FOUND", created: 0, excluded: 0, evaluated: 0 };
+
+  // Pre-vet NAICS overlap needs the solicitation's NAICS. If unclassified, fail closed — the operator
+  // triages/classifies first (we never source against an unknown scope).
+  const naics = validNaics(sol.naicsCode);
+  if (!naics) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "ADMIN",
+      actorUserId: requestedBy,
+      action: "SUBCONTRACTOR_SOURCING_SKIPPED_NO_NAICS",
+      entityType: "solicitations",
+      entityId: solicitationId,
+    });
+    return { status: "NO_NAICS", created: 0, excluded: 0, evaluated: 0 };
+  }
+
+  const scopeText = sol.scopeText ?? "";
+
+  // Ensure the solicitation scope is embedded (the dormant scope_embedding) so the cosine match works.
+  if (!sol.scopeEmbedding && scopeText.length > 0) {
+    const scopeVec = await deps.embed(scopeText);
+    await tx
+      .update(solicitations)
+      .set({ scopeEmbedding: scopeVec })
+      .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)));
+  }
+
+  // Discover registered entities under the solicitation NAICS (SSRF-guarded fetch; a connector error throws
+  // → the run fails loud and retries, never a faked/empty success).
+  const { bytes } = await deps.fetchDoc(
+    buildSamEntityUrl(naics, apiKey, { size: MAX_CANDIDATES_PER_RUN }),
+    { allowedTypes: ["application/json"] },
+  );
+  const entities = parseSamEntities(bytes).slice(0, MAX_CANDIDATES_PER_RUN);
+
+  let created = 0;
+  let excluded = 0;
+  let evaluated = 0;
+  const sourcedAt = new Date();
+
+  for (const entity of entities) {
+    const vet = prevetEntity(entity, { solicitationNaics: naics });
+    if (!vet.pass) {
+      if (entity.excluded === true) {
+        excluded += 1;
+        await writeAudit(tx, {
+          orgId,
+          actorType: "SYSTEM",
+          action: "SUBCONTRACTOR_EXCLUDED",
+          entityType: "vendor_prospects",
+          entityId: null,
+          after: { uei: entity.uei, reasons: vet.reasons },
+        });
+      }
+      continue; // dropped — inactive / excluded / unknown / no NAICS overlap is never surfaced
+    }
+    evaluated += 1;
+
+    // Embed + score (advisory). A row is written ONLY after both succeed — fail-closed by construction.
+    const capabilitiesText = deriveCapabilitiesText(entity);
+    const capabilityVec = await deps.embed(capabilitiesText);
+    const score = await deps.ai.scoreProspect({
+      solicitationScope: scopeText,
+      prospectCapability: capabilitiesText,
+    });
+
+    // Advisory past-performance (best-effort — a failure must not drop an otherwise-vetted candidate).
+    let pastPerformance: PastPerformance | null = null;
+    try {
+      const pp = await deps.fetchDoc(USASPENDING_AWARD_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        allowedTypes: ["application/json"],
+        body: buildPastPerformanceBody(entity.legalName, entity.naicsCodes),
+      });
+      pastPerformance = parsePastPerformance(pp.bytes);
+    } catch {
+      pastPerformance = null;
+    }
+
+    const metadata: DiscoveryMetadata = {
+      cageCode: entity.cageCode,
+      smallBusinessStatus: vet.flags.smallUnderSubcontractNaics ? "SMALL" : "UNKNOWN",
+      registrationActive: vet.flags.registrationActive,
+      exclusionClear: vet.flags.exclusionClear,
+      naicsOverlap: vet.flags.naicsOverlap,
+      smallUnderSubcontractNaics: vet.flags.smallUnderSubcontractNaics,
+      capabilityMatch: score.capabilityMatch,
+      strengths: score.strengths,
+      gaps: score.gaps,
+      pastPerformance,
+      sourcedForSolicitationId: solicitationId,
+      sourcedAt: sourcedAt.toISOString(),
+    };
+
+    const inserted = await tx
+      .insert(vendorProspects)
+      .values({
+        orgId,
+        companyName: entity.legalName,
+        contactEmail: entity.pocEmail,
+        uei: entity.uei,
+        naicsCodes: entity.naicsCodes,
+        capabilitiesText,
+        capabilityEmbedding: capabilityVec,
+        discoveryScore: score.score,
+        discoveryMetadata: metadata,
+        prospectSource: "DISCOVERY",
+        status: "NEW",
+      })
+      // Idempotent: dedupe on the per-org UEI / email partial unique indexes (re-running a discovery run
+      // never double-creates a prospect). A conflict leaves the existing row untouched.
+      .onConflictDoNothing()
+      .returning({ id: vendorProspects.id });
+
+    if (inserted[0]) created += 1;
+  }
+
+  await writeAudit(tx, {
+    orgId,
+    actorType: "ADMIN", // a human requested this discovery run (advisory; nothing was sent or advanced)
+    actorUserId: requestedBy,
+    action: "SUBCONTRACTORS_SOURCED",
+    entityType: "solicitations",
+    entityId: solicitationId,
+    after: { naics, discovered: entities.length, evaluated, created, excluded },
+  });
+
+  return { status: "SOURCED", created, excluded, evaluated };
+}
+
+export interface RankedDiscoveryProspect {
+  id: string;
+  companyName: string;
+  uei: string | null;
+  discoveryScore: number | null;
+  distance: number;
+  metadata: DiscoveryMetadata | null;
+}
+
+/**
+ * Cosine-rank DISCOVERY prospects against a solicitation's scope embedding (the first live use of
+ * vendor_prospects_cap_vec_idx). Read-only; returns [] if the scope is not yet embedded. Lower cosine
+ * distance = closer capability match.
+ */
+export async function rankProspectsByScope(
+  tx: Tx,
+  args: { orgId: string; solicitationId: string; limit?: number },
+): Promise<RankedDiscoveryProspect[]> {
+  const { orgId, solicitationId, limit = 50 } = args;
+  const [sol] = await tx
+    .select({ emb: solicitations.scopeEmbedding })
+    .from(solicitations)
+    .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)))
+    .limit(1);
+  if (!sol?.emb) return [];
+
+  const vec = toVectorLiteral(sol.emb);
+  const distance = sql<number>`${vendorProspects.capabilityEmbedding} <=> ${vec}::vector`;
+  const rows = await tx
+    .select({
+      id: vendorProspects.id,
+      companyName: vendorProspects.companyName,
+      uei: vendorProspects.uei,
+      discoveryScore: vendorProspects.discoveryScore,
+      metadata: vendorProspects.discoveryMetadata,
+      distance,
+    })
+    .from(vendorProspects)
+    .where(
+      and(
+        eq(vendorProspects.orgId, orgId),
+        eq(vendorProspects.prospectSource, "DISCOVERY"),
+        isNotNull(vendorProspects.capabilityEmbedding),
+      ),
+    )
+    .orderBy(distance)
+    .limit(limit);
+
+  return rows.map((r) => ({
+    id: r.id,
+    companyName: r.companyName,
+    uei: r.uei,
+    discoveryScore: r.discoveryScore,
+    distance: Number(r.distance),
+    metadata: r.metadata,
+  }));
 }
 
 /* ===================================================================================

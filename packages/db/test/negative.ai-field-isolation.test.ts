@@ -110,4 +110,20 @@ d("0012: low-trust roles cannot read operator-only AI fields", () => {
       );
       expect(await probe(c, "SELECT title, contract_type FROM solicitations LIMIT 1")).toBeUndefined();
     }));
+
+  it("hermes_token is DENIED vendor_prospects.discovery_metadata but keeps its prospect browse (Phase B)", () =>
+    withRollback(async (c) => {
+      await setOrgContext(c, ORG);
+      await setLocalRole(c, "hermes_token");
+
+      // The DISCOVERY sourcing intel (the firm's internal assessment of a sub) must never reach the sub's
+      // token session — a column-priv denial fires before any RLS row evaluation.
+      expect((await probe(c, "SELECT discovery_metadata FROM vendor_prospects LIMIT 1"))?.code).toBe(
+        PG.INSUFFICIENT_PRIVILEGE,
+      );
+      // ...but the browse columns the tokenized prospect/opt-out path needs still read.
+      expect(
+        await probe(c, "SELECT id, company_name, contact_email, status FROM vendor_prospects LIMIT 1"),
+      ).toBeUndefined();
+    }));
 });

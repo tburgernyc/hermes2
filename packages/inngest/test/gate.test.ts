@@ -18,14 +18,15 @@ import {
   outreachGateFn,
   quoteDetectorFn,
   samScan,
+  sourceSubcontractorsFn,
   triageFn,
   usaspendingFn,
 } from "../src/functions.js";
 
 describe("durable function registry", () => {
-  it("registers all eleven functions, including the approval gate", () => {
+  it("registers all twelve functions, including the approval gate", () => {
     expect(functions).toContain(outreachGateFn);
-    expect(functions).toHaveLength(11);
+    expect(functions).toHaveLength(12);
     // No accidental duplicates — every served function is a distinct object.
     expect(new Set(functions).size).toBe(functions.length);
   });
@@ -37,6 +38,7 @@ describe("durable function registry", () => {
       samScan,
       triageFn,
       onSourcingApprovedFn,
+      sourceSubcontractorsFn, // operator-initiated discovery — advisory, never the send gate
       draftProposalBidFn,
       quoteDetectorFn,
       usaspendingFn,

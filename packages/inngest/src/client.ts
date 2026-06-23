@@ -13,6 +13,13 @@ export type HermesEvents = {
   // send. The autonomous draft step emits it. The send happens ONLY when the human-gate event below
   // (outreach.approved) arrives. So an autonomous emitter here is safe — it cannot pull the trigger.
   "hermes/outreach.queued": { data: { orgId: string; outreachId: string } };
+  // `subcontractors.requested` is operator-initiated (an admin clicks "Find subcontractors"), but it is
+  // ADVISORY, not a gate: the handler only discovers + pre-vets + scores candidate prospects — it sends
+  // nothing and advances no state, so an admin-emitted trigger is safe (it cannot pull any trigger). The
+  // existing outreach approval gate is unchanged.
+  "hermes/subcontractors.requested": {
+    data: { orgId: string; solicitationId: string; requestedBy: string };
+  };
 
   // --- HUMAN GATES — the ONLY events that authorize advancing state / sending. Emitted SOLELY by an
   //     authenticated admin action (apps/web/app/admin/approvals/actions.ts). No cron, model, or

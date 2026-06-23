@@ -49,3 +49,16 @@ GRANT SELECT (
   total_cost_of_work, adequate_price_competition, pass_through_justification, submitted_by,
   submitted_at, counsel_reviewed_by, counsel_reviewed_at, created_at, updated_at
 ) ON proposals TO hermes_vendor;
+
+-- ---- vendor_prospects (Phase B 0005): hermes_token writes + browses prospects, MINUS the sourcing intel ----
+-- Withheld: discovery_metadata — the firm's internal assessment of a subcontractor (vet flags, AI capability
+-- match, strengths/gaps, past-performance) must NEVER reach that subcontractor's token session. hermes_token
+-- has table-wide SELECT on vendor_prospects (0004), so a column REVOKE alone can't restrict it; REVOKE the
+-- table SELECT and re-GRANT SELECT on every column EXCEPT discovery_metadata. Its INSERT/UPDATE (the tokenized
+-- prospect/opt-out write path) are separate privileges and untouched. hermes_vendor has NO grant on
+-- vendor_prospects (0004/0009), so only hermes_token is adjusted here. Fail-closed for future columns.
+REVOKE SELECT ON vendor_prospects FROM hermes_token;
+GRANT SELECT (
+  id, org_id, company_name, contact_email, uei, naics_codes, capabilities_text,
+  capability_embedding, discovery_score, prospect_source, status, created_at, updated_at
+) ON vendor_prospects TO hermes_token;

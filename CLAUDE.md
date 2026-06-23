@@ -279,6 +279,67 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### Phase B — Subcontractor sourcing engine (branch `phase-b-sourcing-engine`) — **CODE COMPLETE** (2026-06-22)
+
+First deliverable of the admin-workflow re-architecture program (plan: `.claude/plans/admin-workflow-redesign.plan.md`;
+operator confirmed build order = Phase B first). For a solicitation, the AI now **discovers, deterministically
+pre-vets, and 0–100-ranks** real candidate subcontractors from federal data — finally populating the
+`prospect_source=DISCOVERY` path and **lighting up the dormant pgvector capability⇄scope match** (first live
+use of `vendor_prospects_cap_vec_idx` + `solicitations_scope_vec_idx`). **Prime Directive §2 intact:** B
+produces *candidates + advisory scores only* — it sends nothing, advances no state, arms no gate; outreach
+stays behind the unchanged approval gate. Exclusion is a **deterministic HARD block**, never a model score.
+
+**Connectors + pre-vet (`packages/inngest/src/sourcing.ts`, PURE/DB-free, fetch injected = SSRF-guarded):**
+`buildSamEntityUrl` (SAM Entity Mgmt v3 `api.sam.gov/entity-information/v3/entities`, active-only) +
+`parseSamEntities` (defensive: malformed→[], missing UEI→skip, indeterminate exclusion→`null`); `prevetEntity`
+(HARD BLOCK on inactive registration · `excluded===true` OR **unknown** · no NAICS overlap — fail-closed;
+size is an advisory flag, not a block, per FAR 52.219-14); `buildPastPerformanceBody`/`parsePastPerformance`
+(USASpending advisory); `deriveCapabilitiesText`.
+
+**Orchestration (`logic.ts`):** `sourceSubcontractors(tx,deps,args)` — embeds the (dormant) solicitation
+scope if unset, fetches entities, drops excluded (audits `SUBCONTRACTOR_EXCLUDED`), embeds+scores each vetted
+candidate (`deps.embed` Voyage + `deps.ai.scoreProspect`), inserts a `DISCOVERY` prospect **only after embed+score
+succeed** (fail-closed by construction), `onConflictDoNothing` for idempotent UEI/email dedupe, audits
+`SUBCONTRACTORS_SOURCED`. A connector failure throws (Inngest retries) — never a partial vetted-looking row.
+`rankProspectsByScope` = the cosine read (`capability_embedding <=> scope::vector`). `LogicDeps` gained
+`embed`. New event `hermes/subcontractors.requested` + `sourceSubcontractorsFn` (functions 11→12, retries 2).
+
+**DB (drizzle `0005_tranquil_bulldozer.sql`, additive):** `vendor_prospects.discovery_metadata jsonb`
+(operator-only `DiscoveryMetadata` — vet flags, AI capabilityMatch/strengths/gaps, CAGE, past-performance) +
+partial unique `vendor_prospects_uei_key (org_id, uei) WHERE uei IS NOT NULL` (race-free UEI dedupe).
+**Isolation (§7):** `hermes_token` holds table-wide SELECT on `vendor_prospects` (0004), so `discovery_metadata`
+would leak the firm's internal sub assessment to a sub's token session — **extended `manual/0012` to REVOKE the
+table SELECT and re-GRANT every column EXCEPT `discovery_metadata`** (the documented 0012 column-grant pattern;
+fail-closed for future columns). hermes_vendor has no `vendor_prospects` grant (safe by construction).
+
+**UI:** `/admin/solicitations/[id]` gained a "Discovered subcontractors" section — a "Find subcontractors"
+button (`requestSubcontractorSourcing` action: requireAdmin → audit → best-effort emit, mirrors `selectQuote`'s
+emit-outside-tx pattern so a missing `INNGEST_EVENT_KEY` in e2e can't fail it) + the cosine-ranked candidate
+list (score, capability %, UEI/CAGE, vet badges, past-performance, strengths/gaps; JSX-autoescaped).
+
+**Tests:** `sourcing.test.ts` (pure: URL builder, parser fail-closed, **exclusion + unknown = HARD block**,
+size advisory); `logic.sourcing.test.ts` (DB-backed, mocked SAM/USASpending/embed/score: discover→prevet→score,
+excluded absent, idempotent UEI dedupe, connector-error fail-closed = no rows, NO_NAICS guard, **cosine rank
+order**); `negative.discovery-prospect.test.ts` (UEI dedupe 23505, partial-NULL coexist, per-org, org RLS WITH
+CHECK 42501, discovery can't overwrite a vetted vendor). Drift guards in lockstep: `expected-schema`
+(+discovery_metadata), `schema.constraints` (+uei partial unique), `schema.guards` + `negative.ai-field-isolation`
+(hermes_token DENIED `discovery_metadata`, browse retained). `makeDeps` gained `embed` + a `fetchDoc`/`embed`
+override param.
+
+**Non-obvious decisions / footguns:**
+- **`api.sam.gov` was already SSRF-allowlisted** (host-level) — entity endpoints needed no allowlist change.
+- **`SAM_API_KEY` needs the Entity-API entitlement** (separate from the Opportunities API) — verified at deploy;
+  the connector fails loud (401/403) rather than faking candidates.
+- **exclusion UNKNOWN = HARD block** (not just `excluded===true`) — never surface a maybe-debarred entity (§7).
+- size (small-under-NAICS) is an **advisory flag**, not a drop — a non-small sub is engageable, it just counts
+  against the 52.219-14 50% cap (FAR-correct; "dropped or flagged, never silently passed").
+- §4 intact: `embed`/`scoreProspect`/SAM fetch are injected deps — tests mock all three; no key in the shell.
+
+**Operator follow-ups:** confirm `SAM_API_KEY` Entity-API entitlement before the first live run; `0005` applies
+via the standard `db:migrate` (0012 re-runs last, re-asserting the column grant). The 4 remaining program phases
+(A console re-arch, C on-receipt/deadline, D Zoho inbox, E assisted-submit, F Dropbox-Sign subcontract, G
+kickoff) each get their own `/plan` + PR.
+
 ### Post-build — Surface the dropped AI outputs on the console (branch `burgergov-ui`) — **CODE COMPLETE** (2026-06-22)
 
 A post-build console enhancement on `burgergov-ui` (not a numbered phase): the AI pipeline generated structured

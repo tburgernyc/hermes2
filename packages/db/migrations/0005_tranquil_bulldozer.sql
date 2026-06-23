@@ -1,0 +1,2 @@
+ALTER TABLE "vendor_prospects" ADD COLUMN "discovery_metadata" jsonb;--> statement-breakpoint
+CREATE UNIQUE INDEX "vendor_prospects_uei_key" ON "vendor_prospects" USING btree ("org_id","uei") WHERE "vendor_prospects"."uei" IS NOT NULL;

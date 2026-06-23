@@ -35,6 +35,27 @@ import { embedding, timestamps, uuidPk } from "./_shared.js";
 import { orgs, users } from "./tenancy.js";
 import { solicitations } from "./sourcing.js";
 
+/**
+ * Operator-only sourcing record for a DISCOVERY prospect (Phase B). Persisted on vendor_prospects, a
+ * table hermes_token holds table-wide SELECT on (0004), so `discovery_metadata` is WITHHELD from the
+ * low-trust roles via the 0012 column-grant pattern (the firm's internal assessment of a subcontractor
+ * must never reach that subcontractor's token session). Advisory/display-only — gates nothing (§2).
+ */
+export interface DiscoveryMetadata {
+  cageCode: string | null;
+  smallBusinessStatus: "SMALL" | "OTHER_THAN_SMALL" | "UNKNOWN";
+  registrationActive: boolean;
+  exclusionClear: boolean; // deterministic pre-vet PASSED (excluded === false, known)
+  naicsOverlap: string[]; // solicitation NAICS the entity also holds
+  smallUnderSubcontractNaics: boolean | null;
+  capabilityMatch: number | null; // AI ProspectScore.capabilityMatch (0..1)
+  strengths: string[];
+  gaps: string[];
+  pastPerformance: { awardCount: number; totalAwarded: number; agencies: string[] } | null;
+  sourcedForSolicitationId: string;
+  sourcedAt: string; // ISO timestamp of the discovery run
+}
+
 export const vendorProspects = pgTable(
   "vendor_prospects",
   {
@@ -49,6 +70,8 @@ export const vendorProspects = pgTable(
     capabilitiesText: text("capabilities_text"),
     capabilityEmbedding: embedding("capability_embedding"),
     discoveryScore: integer("discovery_score"), // 1..100 AI prospect score (recommendation)
+    /** Operator-only sourcing intel (§7 isolated via 0012). NOT readable by hermes_token/hermes_vendor. */
+    discoveryMetadata: jsonb("discovery_metadata").$type<DiscoveryMetadata>(),
     prospectSource: prospectSource("prospect_source").notNull().default("DISCOVERY"),
     status: prospectStatus("status").notNull().default("NEW"),
     ...timestamps(),
@@ -58,6 +81,11 @@ export const vendorProspects = pgTable(
     uniqueIndex("vendor_prospects_email_key")
       .on(t.orgId, sql`lower(${t.contactEmail})`)
       .where(sql`${t.contactEmail} IS NOT NULL`),
+    // Race-free UEI dedupe for the DISCOVERY path (a SAM entity always has a UEI; POC email may be absent,
+    // so the email key alone cannot dedupe). Mirrors the email key — per org, only when UEI is present.
+    uniqueIndex("vendor_prospects_uei_key")
+      .on(t.orgId, t.uei)
+      .where(sql`${t.uei} IS NOT NULL`),
     index("vendor_prospects_org_idx").on(t.orgId),
     index("vendor_prospects_cap_vec_idx").using(
       "hnsw",

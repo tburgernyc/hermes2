@@ -29,6 +29,18 @@ export default auth((req) => {
   const { pathname } = nextUrl;
   const session = req.auth;
 
+  // TEMP DIAGNOSTIC (remove after root-cause): compare the vendor session on the quote-page GET vs the
+  // server-action POST — is the session-token cookie present on the POST, and does edge auth() see a user?
+  if (pathname.includes("/quote")) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[mw-diag] ${req.method} ${pathname} hasUser=${!!session?.user} role=${session?.user?.role ?? "-"} vendorId=${session?.user?.vendorId ?? "-"} cookies=[${req.cookies
+        .getAll()
+        .map((c) => c.name)
+        .join(",")}]`,
+    );
+  }
+
   const nonce = generateNonce();
   const https = isHttpsRequest(req.headers.get("x-forwarded-proto"), nextUrl.protocol);
   const csp = buildCsp(nonce, https);

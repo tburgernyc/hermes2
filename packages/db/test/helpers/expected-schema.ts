@@ -141,6 +141,7 @@ export const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
     { name: "capabilities_text", udt: "text", nullable: true },
     { name: "capability_embedding", udt: "vector", nullable: true },
     { name: "discovery_score", udt: "int4", nullable: true },
+    { name: "discovery_metadata", udt: "jsonb", nullable: true },
     { name: "prospect_source", udt: "prospect_source", nullable: false },
     { name: "status", udt: "prospect_status", nullable: false },
     ...stamps,

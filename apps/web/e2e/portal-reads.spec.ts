@@ -6,16 +6,18 @@
  * PDF — the canary that the 0010 documents EXISTS-to-parent policy replacement is live (under 0009 the
  * vendor's own quote doc was hidden). The untrusted quote `notes` render escaped (as data, never a script
  * element), proving no injection surface. The app connects via the owner DSN but withVendorRole does
- * SET LOCAL ROLE hermes_vendor, so these reads are genuinely RLS-scoped. Vendor login needs no TOTP, so
- * it is immune to the admin cold-start step-up race — no warmup required.
+ * SET LOCAL ROLE hermes_vendor, so these reads are genuinely RLS-scoped. The vendor login still races the
+ * cold-start session establishment on a contended runner, so a beforeAll warmup + a retrying loginVendor
+ * (vendor-auth.ts) establish a live session up front (the vendor analogue of the admin step-up mitigation).
  */
 import { randomUUID } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { Pool } from "pg";
 
 import { hashPassword } from "@hermes/core";
 
-import { E2E_ORG_SLUG, E2E_VENDOR_EMAIL, E2E_VENDOR_PASSWORD } from "./fixtures";
+import { E2E_ORG_SLUG } from "./fixtures";
+import { loginVendor, warmVendorSession } from "./vendor-auth";
 
 // A VENDOR user deliberately left UNLINKED (vendor_id stays NULL) — requireVendorWithVendorId must block
 // it from the scoped reads even though middleware lets any vendor-role user reach /portal.
@@ -105,19 +107,13 @@ async function seedVendorReads(): Promise<Seeded> {
   }
 }
 
-async function loginVendor(page: Page): Promise<void> {
-  await page.goto("/login");
-  await page.fill('input[name="email"]', E2E_VENDOR_EMAIL);
-  await page.fill('input[name="password"]', E2E_VENDOR_PASSWORD);
-  await page.click('button[type="submit"]');
-  await page.waitForURL(/\/portal$/);
-}
-
 test.describe("vendor portal reads (PR J)", () => {
   let seeded: Seeded;
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(180_000);
     seeded = await seedVendorReads();
+    await warmVendorSession(browser);
   });
 
   test("a linked vendor reads my quotes, the detail + line items, open RFQs, and my documents", async ({

@@ -19,6 +19,7 @@ import {
   vendors,
   withOrg,
 } from "@hermes/db";
+import { rankProspectsByScope } from "@hermes/inngest";
 
 import { Badge, Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
@@ -27,7 +28,7 @@ import { humanizeStatus, recommendationLabel, recommendationTone } from "@/lib/a
 import { requireAdmin } from "@/lib/auth-guard";
 
 import { approveSourcing } from "../../approvals/actions";
-import { markNoGo, selectQuote, shortlistQuote } from "../actions";
+import { markNoGo, requestSubcontractorSourcing, selectQuote, shortlistQuote } from "../actions";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -86,11 +87,15 @@ export default async function SolicitationDetail({
     }
 
     const hasWinner = quotes.some((q) => q.status === "SELECTED");
-    return { sol, quotes, names, hasWinner };
+    // Phase B: AI-discovered subcontractor candidates, cosine-ranked against this solicitation's scope
+    // embedding (read-only; advisory — every candidate already passed the deterministic pre-vet). [] until
+    // a discovery run has embedded the scope + sourced candidates.
+    const discovered = await rankProspectsByScope(tx, { orgId, solicitationId: id, limit: 25 });
+    return { sol, quotes, names, hasWinner, discovered };
   });
 
   if (!data) notFound();
-  const { sol, quotes, names, hasWinner } = data;
+  const { sol, quotes, names, hasWinner, discovered } = data;
 
   return (
     <main>
@@ -189,6 +194,91 @@ export default async function SolicitationDetail({
           <p className={c.scope}>{sol.scopeText.slice(0, 4000)}</p>
         </Section>
       )}
+
+      <Section title="Discovered subcontractors" count={discovered.length}>
+        <Card>
+          <div className={c.rowBetween}>
+            <span className={c.meta}>
+              AI-sourced from SAM.gov + USASpending, deterministically pre-vetted (active registration · not
+              excluded · NAICS match) and ranked by capability fit. Advisory only — outreach is drafted when
+              you approve sourcing, and nothing is sent automatically.
+            </span>
+            <form action={requestSubcontractorSourcing}>
+              <input type="hidden" name="solicitationId" value={sol.id} />
+              <Button type="submit" size="sm" variant="ghost">
+                Find subcontractors
+              </Button>
+            </form>
+          </div>
+        </Card>
+        {discovered.length === 0 ? (
+          <p className={c.empty}>
+            No candidates discovered yet. Use “Find subcontractors” to source and rank candidates.
+          </p>
+        ) : (
+          <ul className={c.list}>
+            {discovered.map((p, i) => {
+              const m = p.metadata;
+              return (
+                <Card as="li" key={p.id} size="sm" testId={`discovered-${p.id}`} className={c.hoverable}>
+                  <div className={c.rowBetween}>
+                    <div>
+                      <div className={c.row}>
+                        <span className={c.rankPill}>#{i + 1}</span>
+                        <strong>{p.companyName}</strong>
+                        {p.discoveryScore != null && (
+                          <Badge tone="info">AI score {p.discoveryScore}/100</Badge>
+                        )}
+                        {m?.capabilityMatch != null && (
+                          <Badge>capability {(m.capabilityMatch * 100).toFixed(0)}%</Badge>
+                        )}
+                      </div>
+                      <div className={c.row}>
+                        <span className={c.metaMono}>
+                          UEI {p.uei ?? "—"}
+                          {m?.cageCode ? ` · CAGE ${m.cageCode}` : ""}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={c.row}>
+                      {m?.exclusionClear && <Badge tone="success">Not excluded</Badge>}
+                      {m?.smallUnderSubcontractNaics && <Badge tone="success">Small under NAICS</Badge>}
+                    </div>
+                  </div>
+                  {m?.pastPerformance && (
+                    <div className={c.meta}>
+                      Past performance: {m.pastPerformance.awardCount} prior award(s)
+                      {m.pastPerformance.agencies.length > 0
+                        ? ` · ${m.pastPerformance.agencies.slice(0, 3).join(", ")}`
+                        : ""}
+                    </div>
+                  )}
+                  {m?.strengths && m.strengths.length > 0 && (
+                    <div className={c.rationale}>
+                      <strong>Strengths</strong>
+                      <ul className={c.bulletList}>
+                        {m.strengths.map((s, j) => (
+                          <li key={j}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {m?.gaps && m.gaps.length > 0 && (
+                    <div className={c.rationale}>
+                      <strong>Gaps</strong>
+                      <ul className={c.bulletList}>
+                        {m.gaps.map((g, j) => (
+                          <li key={j}>{g}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </ul>
+        )}
+      </Section>
 
       <Section title="Subcontractor quotes" count={quotes.length}>
         {quotes.length === 0 ? (

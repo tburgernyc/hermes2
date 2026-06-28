@@ -32,7 +32,7 @@ test("admin signs in with password + TOTP and reaches /admin", async ({ page }) 
 test("vendor signs in, reaches /portal, and is blocked from /admin", async ({ page }) => {
   await login(page, E2E_VENDOR_EMAIL, E2E_VENDOR_PASSWORD);
   await page.waitForURL(/\/portal$/);
-  await expect(page.getByRole("heading", { name: "Subcontractor Portal" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Subcontractor dashboard" })).toBeVisible();
   // PR-C linkage: the seeded vendor user is bound to a vetted vendor, so the session carries vendorId
   // end-to-end (DB users.vendor_id → AUTH_COLUMNS → authorize → jwt → session → page).
   await expect(page.getByTestId("vendor-link")).toContainText("Vendor account linked");

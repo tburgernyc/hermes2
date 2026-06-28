@@ -102,6 +102,9 @@ interface PrivRow {
   vendor_proposals_narrative_select: boolean;
   token_sol_title_select: boolean;
   token_sol_triage_summary_select: boolean;
+  // Phase B (0005/0012): the DISCOVERY sourcing intel is withheld from hermes_token; browse retained.
+  token_prospect_company_select: boolean;
+  token_prospect_discovery_metadata_select: boolean;
 }
 
 d("guards: triggers, RLS, policies, roles, grants", () => {
@@ -205,7 +208,9 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
            has_column_privilege('hermes_vendor','proposals','status','SELECT')                    AS vendor_proposals_status_select,
            has_column_privilege('hermes_vendor','proposals','narrative','SELECT')                 AS vendor_proposals_narrative_select,
            has_column_privilege('hermes_token','solicitations','title','SELECT')                  AS token_sol_title_select,
-           has_column_privilege('hermes_token','solicitations','triage_summary','SELECT')         AS token_sol_triage_summary_select`,
+           has_column_privilege('hermes_token','solicitations','triage_summary','SELECT')         AS token_sol_triage_summary_select,
+           has_column_privilege('hermes_token','vendor_prospects','company_name','SELECT')        AS token_prospect_company_select,
+           has_column_privilege('hermes_token','vendor_prospects','discovery_metadata','SELECT')  AS token_prospect_discovery_metadata_select`,
       );
       privs = pr.rows[0];
     } finally {
@@ -330,5 +335,9 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     // The token role keeps its solicitation browse (title) but cannot read the triage AI summary either.
     expect(privs?.token_sol_title_select).toBe(true);
     expect(privs?.token_sol_triage_summary_select).toBe(false);
+    // Phase B (0005/0012): the token role keeps its vendor_prospects browse (company_name) but is NOT
+    // column-readable on discovery_metadata — the firm's internal sub assessment never reaches a sub token.
+    expect(privs?.token_prospect_company_select).toBe(true);
+    expect(privs?.token_prospect_discovery_metadata_select).toBe(false);
   });
 });

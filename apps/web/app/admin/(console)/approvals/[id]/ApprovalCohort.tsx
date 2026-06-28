@@ -75,7 +75,13 @@ export function ApprovalCohort({ recipients, source }: ApprovalCohortProps): JSX
         setStatus(`Outreach sent to ${recipients.length} ${recipients.length === 1 ? "vendor" : "vendors"}.`);
         router.refresh();
       } catch {
-        setStatus("Could not send the outreach. Nothing was sent for the remaining vendors — please retry.");
+        // The batch approves campaigns one at a time; a failure can land mid-way, leaving the earlier
+        // vendors already APPROVED. Re-read the server so the list reflects the real state (no optimistic
+        // fiction), and tell the operator honestly rather than implying nothing was sent.
+        router.refresh();
+        setStatus(
+          "The send failed partway through. Some vendors above may already have been approved — the list now reflects the current state; retry to approve any still pending.",
+        );
       }
     });
   }
@@ -99,12 +105,12 @@ export function ApprovalCohort({ recipients, source }: ApprovalCohortProps): JSX
     <>
       <div className={c.split}>
         <section className={c.pane} aria-label="Source solicitation">
-          <span className={c.paneLabel}>Source solicitation · locked</span>
+          <h2 className={c.paneLabel}>Source solicitation · locked</h2>
           {source}
         </section>
 
         <section className={c.pane} aria-label="Vendors to contact">
-          <span className={c.paneLabel}>Vendors to contact · review before sending</span>
+          <h2 className={c.paneLabel}>Vendors to contact · review before sending</h2>
           {recipients.length === 0 ? (
             <p className={styles.empty}>No outreach is awaiting approval for this solicitation.</p>
           ) : (

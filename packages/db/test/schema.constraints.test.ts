@@ -90,6 +90,8 @@ const EXPECTED_HNSW = [
 
 const EXPECTED_PARTIAL_UNIQUE = [
   "vendor_prospects_email_key",
+  // Phase B (0005): race-free UEI dedupe for the DISCOVERY sourcing path — partial on uei NOT NULL.
+  "vendor_prospects_uei_key",
   "vendor_quotes_jti_key",
   "outreach_quote_token_key",
   "outreach_optout_token_key",

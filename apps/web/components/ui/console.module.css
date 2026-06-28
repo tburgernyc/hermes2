@@ -511,6 +511,7 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 .inviteLink {
+  display: block;
   margin-top: var(--space-4);
   font-family: var(--font-mono);
   font-size: 0.8rem;

@@ -127,6 +127,7 @@ export default async function VendorQuotePage({ params, searchParams }: PageProp
                 </select>
                 <input
                   name={`description_${i}`}
+                  aria-label={`Line item ${i + 1} description`}
                   placeholder="Description"
                   maxLength={500}
                   className={c.control}
@@ -136,6 +137,7 @@ export default async function VendorQuotePage({ params, searchParams }: PageProp
                   type="number"
                   step="0.01"
                   min="0"
+                  aria-label={`Line item ${i + 1} quantity`}
                   placeholder="Qty"
                   defaultValue="1"
                   className={c.control}
@@ -145,6 +147,7 @@ export default async function VendorQuotePage({ params, searchParams }: PageProp
                   type="number"
                   step="0.01"
                   min="0"
+                  aria-label={`Line item ${i + 1} unit rate in US dollars`}
                   placeholder="Unit rate (USD)"
                   className={c.control}
                 />

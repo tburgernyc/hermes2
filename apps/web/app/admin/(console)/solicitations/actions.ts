@@ -181,3 +181,49 @@ export async function selectQuote(formData: FormData): Promise<void> {
     revalidatePath(`/admin/solicitations/${solicitationId}`);
   }
 }
+
+/**
+ * Phase B — request an ADVISORY subcontractor-discovery run for this solicitation. Records the human
+ * request, then best-effort emits hermes/subcontractors.requested; the Inngest handler discovers + pre-vets
+ * + scores candidate prospects. It is NOT a gate and has NO outbound side effect: nothing is sent and no
+ * state is advanced (CLAUDE.md §2). A failed/unconfigured emit (e.g. e2e has no INNGEST_EVENT_KEY) must NOT
+ * fail the request — the audit row is the correctness-critical fact.
+ */
+export async function requestSubcontractorSourcing(formData: FormData): Promise<void> {
+  const session = await requireAdmin();
+  const orgId = session.user.orgId;
+  const userId = session.user.id;
+  const solicitationId = readId(formData, "solicitationId");
+
+  // Verify the solicitation is in-org (and audit the request) before emitting — no cross-org trigger.
+  const ok = await withOrg(orgId, async (tx) => {
+    const [sol] = await tx
+      .select({ id: solicitations.id })
+      .from(solicitations)
+      .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)))
+      .limit(1);
+    if (!sol) return false;
+    await writeAudit(tx, {
+      orgId,
+      actorType: "ADMIN",
+      actorUserId: userId,
+      actorEmail: session.user.email ?? null,
+      action: "SUBCONTRACTOR_SOURCING_REQUESTED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+    });
+    return true;
+  });
+  if (!ok) return;
+
+  try {
+    await inngest.send({
+      name: "hermes/subcontractors.requested",
+      data: { orgId, solicitationId, requestedBy: userId },
+    });
+  } catch {
+    // Advisory discovery — a failed/unconfigured emit must never fail the operator's request. The audit
+    // row already committed; the operator can retry. (No outbound action was pending — §2-safe.)
+  }
+  revalidatePath(`/admin/solicitations/${solicitationId}`);
+}

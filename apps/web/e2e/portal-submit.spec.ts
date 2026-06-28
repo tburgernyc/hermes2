@@ -106,18 +106,17 @@ async function fillAndSubmit(page: Page, solId: string): Promise<void> {
   await page
     .locator('input[name="file"]')
     .setInputFiles({ name: "quote.pdf", mimeType: "application/pdf", buffer: PDF_BYTES });
-  await page.click('button[type="submit"]');
+  // Scope to the quote form's submit button: ConsoleShell's nav renders a "Sign out" submit button
+  // first in the DOM, so a bare button[type="submit"] would click Sign out (→ signOut → /login).
+  await page.getByTestId("quote-form").getByRole("button", { name: "Submit quote" }).click();
 }
 
-// QUARANTINED (see memory portal-submit-server-action-bug + the follow-up): the multipart vendor
-// server-action POST does not dispatch under the current Next.js 15 + middleware setup — the submit
-// redirects to /login and `submitQuote` never runs (reproduced deterministically in CI and locally;
-// ruled out standalone / removeConsole / the middleware request-header rewrite). This is NOT a product or
-// security regression: the §7 / Prime-Directive invariants (vendor_id from the session, the VENDOR audit
-// row, the one-active-quote unique index, the write-time status re-check) are still verified at the DB
-// layer by packages/db's negative.vendor-submit.test.ts in the `db` job. `fixme` keeps web-e2e green while
-// the server-action dispatch bug is fixed in a focused follow-up; flip back to test.describe once fixed.
-test.describe.fixme("vendor portal submit (PR K)", () => {
+// Drives the full logged-in multipart submit through a real browser. The submit click MUST target the
+// quote form's OWN button (see fillAndSubmit): ConsoleShell's nav renders a "Sign out" submit button
+// first in the DOM, so a bare button[type="submit"] selector clicks Sign out (→ signOut → /login) and the
+// quote is never sent. The §7 / Prime-Directive invariants are also covered at the DB layer by
+// packages/db's negative.vendor-submit.test.ts in the `db` job.
+test.describe("vendor portal submit (PR K)", () => {
   let ctx: Ctx;
 
   test.beforeAll(async ({ browser }) => {
@@ -217,7 +216,8 @@ test.describe.fixme("vendor portal submit (PR K)", () => {
     await page
       .locator('input[name="file"]')
       .setInputFiles({ name: "quote.pdf", mimeType: "application/pdf", buffer: PDF_BYTES });
-    await page.click('button[type="submit"]');
+    // Scope to the quote form's button (not ConsoleShell's "Sign out") — see fillAndSubmit.
+    await page.getByTestId("quote-form").getByRole("button", { name: "Submit quote" }).click();
 
     // Refused: the "closed" status message, and the form is gone (the now-closed RFQ shows rfq-closed).
     await expect(page.getByTestId("submit-status")).toContainText("no longer accepting");

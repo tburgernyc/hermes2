@@ -48,7 +48,7 @@ export default defineConfig({
   // machine. (The beforeAll warmup sets its own longer timeout to establish warmth up front.)
   timeout: 90_000,
   globalSetup: "./e2e/global-setup.ts",
-  use: { baseURL: BASE_URL },
+  use: { baseURL: BASE_URL, trace: "retain-on-failure", screenshot: "only-on-failure" },
   webServer: {
     command: "pnpm start",
     url: BASE_URL,

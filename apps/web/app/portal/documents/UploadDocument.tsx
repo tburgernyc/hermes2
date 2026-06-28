@@ -70,7 +70,11 @@ export function UploadDocument(): JSX.Element {
           e.preventDefault();
           setDragging(true);
         }}
-        onDragLeave={() => setDragging(false)}
+        onDragLeave={(e) => {
+          // Only disarm when the cursor actually leaves the zone — not when it crosses onto a child
+          // element (label/input/hint), which would otherwise flicker the "armed" highlight.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        }}
         onDrop={onDrop}
       >
         <label htmlFor={inputId} className={styles.zoneLabel}>

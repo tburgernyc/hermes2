@@ -64,7 +64,7 @@ test("admin mints an invite; invitee onboards and signs in to the linked portal"
   // 3. The new VENDOR user signs in → /portal, already linked to the vendor (DB → session vendorId).
   await loginVendor(page, invitedEmail, password);
   await page.waitForURL(/\/portal$/);
-  await expect(page.getByRole("heading", { name: "Subcontractor Portal" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Subcontractor dashboard" })).toBeVisible();
   await expect(page.getByTestId("vendor-link")).toContainText("Vendor account linked");
 });
 

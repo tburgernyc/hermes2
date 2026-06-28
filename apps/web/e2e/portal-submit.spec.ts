@@ -132,7 +132,9 @@ test.describe("vendor portal submit (PR K)", () => {
     await page.goto("/portal/solicitations");
     await page.getByRole("link", { name: "Submit quote" }).first().waitFor();
     await fillAndSubmit(page, solId);
-    await expect(page.getByTestId("submit-success")).toBeVisible();
+    // DIAGNOSTIC: the redirect ?status= reveals why a non-success submit failed (closed/duplicate/...).
+    await page.waitForURL(/\/quote\?status=/, { timeout: 10_000 }).catch(() => {});
+    await expect(page.getByTestId("submit-success"), `submit redirected to: ${page.url()}`).toBeVisible();
 
     // OWNER-DSN read-back: the structural §7 / Prime-Directive assertions.
     const db = pool();

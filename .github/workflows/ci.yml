@@ -197,6 +197,17 @@ jobs:
       - name: Auth-boundary e2e suite
         run: pnpm --filter @hermes/web test:e2e
 
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
   # Neon-fidelity acceptance: the same suite against a real, THROWAWAY Neon branch — validates the
   # pooler / owner-not-superuser RLS semantics the generic container can't. Gated on CI secrets; when
   # they are absent the job emits a ::notice:: and skips the real steps (visible, never a silent

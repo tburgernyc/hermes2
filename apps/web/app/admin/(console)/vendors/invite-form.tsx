@@ -56,7 +56,7 @@ export function InviteForm({ vendors }: { vendors: VendorOption[] }): JSX.Elemen
           <p className={c.meta}>
             Single-use invite link for {state.email} (copy + send it to the vendor):
           </p>
-          <div className={c.inviteLink}>{state.link}</div>
+          <code className={c.inviteLink}>{state.link}</code>
         </div>
       ) : null}
     </form>

@@ -54,6 +54,9 @@ export function TotpInput({ length = 6, name = "code", label }: TotpInputProps):
             inputMode="numeric"
             autoComplete={index === 0 ? "one-time-code" : "off"}
             maxLength={1}
+            // Each cell is required so the browser blocks an empty/partial submit synchronously,
+            // restoring the guard the single <Field required> gave before this control replaced it.
+            required
             value={value}
             onChange={(e) => setAt(index, e.target.value)}
             onKeyDown={(e) => onKeyDown(index, e)}

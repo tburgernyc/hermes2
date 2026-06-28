@@ -5,14 +5,16 @@
  *   • vendor_id = the SESSION vendor (never the form), prospect_id NULL, token_jti NULL, status SUBMITTED;
  *   • a VENDOR_QUOTE document hangs off the quote; an audit_log row records actor_type=VENDOR + the user.
  * A second submit against the same RFQ is rejected by the one-active-quote partial unique index (the
- * "duplicate" status), proving the structural guard end-to-end. Vendor login needs no TOTP, so this is
- * immune to the admin cold-start step-up race (no warmup).
+ * "duplicate" status), proving the structural guard end-to-end. The vendor login still races the cold-start
+ * session establishment on a contended runner, so a beforeAll warmup + a retrying loginVendor (vendor-auth.ts)
+ * establish a live session up front before the submit.
  */
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 
-import { E2E_ORG_SLUG, E2E_VENDOR_EMAIL, E2E_VENDOR_PASSWORD } from "./fixtures";
+import { E2E_ORG_SLUG, E2E_VENDOR_EMAIL } from "./fixtures";
+import { loginVendor, warmVendorSession } from "./vendor-auth";
 
 const OWNER_DSN =
   process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
@@ -95,14 +97,6 @@ async function closeRfq(solId: string): Promise<void> {
   }
 }
 
-async function loginVendor(page: Page): Promise<void> {
-  await page.goto("/login");
-  await page.fill('input[name="email"]', E2E_VENDOR_EMAIL);
-  await page.fill('input[name="password"]', E2E_VENDOR_PASSWORD);
-  await page.click('button[type="submit"]');
-  await page.waitForURL(/\/portal$/);
-}
-
 async function fillAndSubmit(page: Page, solId: string): Promise<void> {
   await page.goto(`/portal/solicitations/${solId}/quote`);
   await expect(page.getByTestId("quote-form")).toBeVisible();
@@ -118,8 +112,10 @@ async function fillAndSubmit(page: Page, solId: string): Promise<void> {
 test.describe("vendor portal submit (PR K)", () => {
   let ctx: Ctx;
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(180_000);
     ctx = await loadContext();
+    await warmVendorSession(browser);
   });
 
   test("a linked vendor submits a quote; the persisted row is vendor-scoped + audited", async ({

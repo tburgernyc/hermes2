@@ -13,3 +13,6 @@ test-results/
 playwright-report/
 playwright/.cache/
 .claude/settings.local.json
+
+# Local-only dev login cheat-sheet (real credentials — never committed; see README "Accessing the app")
+LOCAL_LOGIN.md

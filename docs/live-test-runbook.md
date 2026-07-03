@@ -46,9 +46,12 @@ other than `true`). With both off, the submit gate and counsel gate behave byte-
    ```bash
    pnpm --filter @hermes/db migrate
    pnpm --filter @hermes/db seed         # seeds only the firm org + admin user (no synthetic opportunities)
+   ln -sfn ../../.env apps/web/.env.local # one-time: next dev only loads env from apps/web (see README §Running locally)
    pnpm --filter @hermes/web dev          # or `fly deploy` for the deployed run
    ```
-   Resolve the seeded org's UUID and set `HERMES_ACTIVE_ORG_IDS` to it.
+   Resolve the seeded org's UUID and set `HERMES_ACTIVE_ORG_IDS` to it. The seeded admin ships with a
+   non-usable reset sentinel password — set a real dev password and self-enroll TOTP on first login before
+   walking `/admin` (see [README](../README.md) → "Accessing the app").
 
 2. **Trigger the SAM pull.** Let the `samScan` cron fire, or invoke the ingest from the Inngest dev UI.
    With a valid `SAM_API_KEY` you'll see new `solicitations` rows from real notices (agency, notice number,

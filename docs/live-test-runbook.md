@@ -53,6 +53,10 @@ other than `true`). With both off, the submit gate and counsel gate behave byte-
    non-usable reset sentinel password — set a real dev password and self-enroll TOTP on first login before
    walking `/admin` (see [README](../README.md) → "Accessing the app").
 
+   If the dev server runs on a **remote SSH box**, forward port 3000 to your laptop before opening the
+   browser (`ssh -N -L 3000:localhost:3000 <user>@<host>`) — see [README](../README.md) → "Running on a
+   remote box? Tunnel port 3000".
+
 2. **Trigger the SAM pull.** Let the `samScan` cron fire, or invoke the ingest from the Inngest dev UI.
    With a valid `SAM_API_KEY` you'll see new `solicitations` rows from real notices (agency, notice number,
    NAICS, response deadline, scope). With no key the job **throws and reports** — it never fakes results.

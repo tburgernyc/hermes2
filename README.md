@@ -82,6 +82,35 @@ Open **http://localhost:3000**. A healthy boot logs `Environments: .env.local` a
 > `pnpm --filter @hermes/db seed`. For the full end-to-end walk (real SAM.gov + AI + human gates, with a
 > sandboxed safe-stop submit) see [docs/live-test-runbook.md](./docs/live-test-runbook.md).
 
+### Running on a remote box? Tunnel port 3000
+
+If the dev server runs on a **remote VM you reach over SSH** (not your laptop), `next dev` binds to *that
+box's* `localhost:3000` — so `http://localhost:3000` in your laptop browser has nothing to connect to and
+returns `ERR_CONNECTION_REFUSED`. Plain SSH (unlike VS Code Remote / Codespaces) does **not** auto-forward
+ports. Open a local port-forward from your laptop, then browse `http://localhost:3000`:
+
+```bash
+# one-off — run on your LAPTOP in a separate terminal; leave it running
+ssh -N -L 3000:localhost:3000 <ssh-user>@<vm-host>
+# …or, on GCP:
+gcloud compute ssh <instance> --zone <zone> -- -N -L 3000:localhost:3000
+```
+
+To make it persistent, add a host block to your laptop's `~/.ssh/config`:
+
+```ssh-config
+Host hermes-dev
+    HostName <vm-host>          # e.g. the VM's external IP
+    User <ssh-user>
+    LocalForward 3000 localhost:3000
+```
+
+Then `ssh -N hermes-dev` forwards the port automatically and `http://localhost:3000` on your laptop reaches
+the VM. The tunnel rides your existing SSH (port 22) connection — **no firewall change needed** — and keeps
+the browser origin as `localhost:3000`, which is what Auth.js expects for login cookies, CSRF, and TOTP
+callbacks (hitting the VM's IP directly would break those). Your own literal VM host/user live in the
+gitignored `LOCAL_LOGIN.md`.
+
 ## Accessing the app — accounts & login
 
 | Surface | Routes | Auth |

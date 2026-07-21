@@ -288,40 +288,6 @@ jobs:
           echo "::add-mask::${uri}"
           echo "ACCEPTANCE_DSN=${uri}" >> "$GITHUB_ENV"
 
-      - name: TEMP schema-drift introspection (read-only metadata; remove before merge)
-        if: steps.gate.outputs.enabled == 'true'
-        run: |
-          pnpm --filter @hermes/db exec node -e '
-            const { Client } = require("pg");
-            (async () => {
-              const c = new Client({ connectionString: process.env.ACCEPTANCE_DSN });
-              await c.connect();
-              const tables = ["vendor_prospects","proposals","vendor_quotes","outreach_campaigns","solicitations"];
-              const cols = await c.query(
-                "select table_name, column_name, data_type, udt_name, is_nullable, column_default, character_maximum_length, numeric_precision from information_schema.columns where table_name = ANY($1) order by table_name, ordinal_position",
-                [tables]
-              );
-              console.log("COLUMNS_JSON_START");
-              console.log(JSON.stringify(cols.rows));
-              console.log("COLUMNS_JSON_END");
-              const enums = await c.query(
-                "select t.typname, e.enumlabel, e.enumsortorder from pg_type t join pg_enum e on t.oid = e.enumtypid where t.typname = $1 order by e.enumsortorder",
-                ["ai_recommendation"]
-              );
-              console.log("ENUM_JSON_START");
-              console.log(JSON.stringify(enums.rows));
-              console.log("ENUM_JSON_END");
-              const checks = await c.query(
-                "select conname, pg_get_constraintdef(oid) as def from pg_constraint where conname = ANY($1)",
-                [["outreach_ai_capability_match_range","outreach_ai_match_score_range","vendor_quotes_ai_score_range"]]
-              );
-              console.log("CHECKS_JSON_START");
-              console.log(JSON.stringify(checks.rows));
-              console.log("CHECKS_JSON_END");
-              await c.end();
-            })().catch((e) => { console.error(e); process.exit(1); });
-          '
-
       - name: Migrate + seed + suite (real Neon branch)
         if: steps.gate.outputs.enabled == 'true'
         env:

@@ -11,6 +11,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -22,6 +23,7 @@ import {
 import { sql } from "drizzle-orm";
 
 import {
+  aiRecommendation,
   outreachStatus,
   outreachStep,
   prospectSource,
@@ -47,6 +49,7 @@ export const vendorProspects = pgTable(
     capabilitiesText: text("capabilities_text"),
     capabilityEmbedding: embedding("capability_embedding"),
     discoveryScore: integer("discovery_score"), // 1..100 AI prospect score (recommendation)
+    discoveryMetadata: jsonb("discovery_metadata"), // raw discovery-source detail behind discoveryScore
     prospectSource: prospectSource("prospect_source").notNull().default("DISCOVERY"),
     status: prospectStatus("status").notNull().default("NEW"),
     ...timestamps(),
@@ -134,6 +137,13 @@ export const outreachCampaigns = pgTable(
     status: outreachStatus("status").notNull().default("DRAFT"),
     subject: text("subject").notNull(),
     body: text("body").notNull(), // React Email autoescaped at render
+    /** Semantic capability<->scope match (CLAUDE.md §6 locked decision): the AI's assessment of THIS
+     * prospect against THIS solicitation, surfaced alongside the drafted outreach for human review. */
+    aiMatchScore: integer("ai_match_score"), // 1..100
+    aiCapabilityMatch: numeric("ai_capability_match", { precision: 4, scale: 3 }), // 0..1 fraction
+    aiStrengths: jsonb("ai_strengths").$type<string[]>(),
+    aiGaps: jsonb("ai_gaps").$type<string[]>(),
+    aiRecommendation: aiRecommendation("ai_recommendation"),
     /** HMAC-SHA-256 token hashes (keyed by TOKEN_SIGNING_SECRET); raw tokens are never stored. */
     quoteTokenHash: text("quote_token_hash"),
     quoteTokenExpiresAt: timestamp("quote_token_expires_at", { withTimezone: true, mode: "date" }),
@@ -183,6 +193,14 @@ export const outreachCampaigns = pgTable(
     check(
       "outreach_optout_token_expiry",
       sql`(${t.optoutTokenHash} IS NULL) = (${t.optoutTokenExpiresAt} IS NULL)`,
+    ),
+    check(
+      "outreach_ai_match_score_range",
+      sql`${t.aiMatchScore} IS NULL OR (${t.aiMatchScore} >= 1 AND ${t.aiMatchScore} <= 100)`,
+    ),
+    check(
+      "outreach_ai_capability_match_range",
+      sql`${t.aiCapabilityMatch} IS NULL OR (${t.aiCapabilityMatch} >= 0 AND ${t.aiCapabilityMatch} <= 1)`,
     ),
   ],
 );

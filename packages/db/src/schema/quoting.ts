@@ -52,6 +52,8 @@ export const vendorQuotes = pgTable(
     notes: text("notes"), // UNTRUSTED free text — fence as data in any AI call
     aiRank: integer("ai_rank"),
     aiRationale: text("ai_rationale"),
+    aiScore: numeric("ai_score", { precision: 5, scale: 2 }), // 0..100
+    aiRisks: jsonb("ai_risks").$type<string[]>(),
     evaluatedAt: timestamp("evaluated_at", { withTimezone: true, mode: "date" }),
     ...timestamps(),
   },
@@ -85,6 +87,10 @@ export const vendorQuotes = pgTable(
       sql`(${t.vendorId} IS NOT NULL) <> (${t.prospectId} IS NOT NULL)`,
     ),
     check("vendor_quotes_total_nonneg", sql`${t.totalPrice} IS NULL OR ${t.totalPrice} >= 0`),
+    check(
+      "vendor_quotes_ai_score_range",
+      sql`${t.aiScore} IS NULL OR (${t.aiScore} >= 0 AND ${t.aiScore} <= 100)`,
+    ),
   ],
 );
 
@@ -153,6 +159,8 @@ export const proposals = pgTable(
     /** Scenarios for the human to choose — never a single authoritative number (CLAUDE.md §6). */
     pricingScenarios: jsonb("pricing_scenarios"),
     complianceChecklist: jsonb("compliance_checklist"),
+    /** The AI-drafted bid narrative (persisted so the review surface/export can render it back). */
+    narrative: jsonb("narrative"),
     // --- FAR 52.219-14 Limitations on Subcontracting substrate ---
     primeQualifyingStatus: smallBusinessStatus("prime_qualifying_status"),
     primeQualifyingNaics: varchar("prime_qualifying_naics", { length: 6 }),

@@ -45,6 +45,9 @@ export const contractType = pgEnum("contract_type", [
 
 export const zeroFloatFit = pgEnum("zero_float_fit", ["STRONG", "MODERATE", "WEAK", "NONE"]);
 
+/** Shared AI-verdict enum: solicitation triage recommendation AND per-prospect outreach match verdict. */
+export const aiRecommendation = pgEnum("ai_recommendation", ["PURSUE", "REJECT", "HUMAN_REVIEW"]);
+
 export const noticeType = pgEnum("notice_type", [
   "SOLICITATION",
   "COMBINED_SYNOPSIS_SOLICITATION",

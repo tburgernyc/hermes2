@@ -6,7 +6,7 @@
  */
 import type { JSX } from "react";
 
-import { and, desc, eq, outreachCampaigns, solicitations, withOrg } from "@hermes/db";
+import { and, desc, eq, outreachCampaigns, solicitations, vendorProspects, withOrg } from "@hermes/db";
 
 import { Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
@@ -39,9 +39,15 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
       .select({
         id: outreachCampaigns.id,
         subject: outreachCampaigns.subject,
-        prospectId: outreachCampaigns.prospectId,
+        body: outreachCampaigns.body,
+        prospectCompanyName: vendorProspects.companyName,
+        prospectContactEmail: vendorProspects.contactEmail,
       })
       .from(outreachCampaigns)
+      .innerJoin(
+        vendorProspects,
+        and(eq(vendorProspects.orgId, outreachCampaigns.orgId), eq(vendorProspects.id, outreachCampaigns.prospectId)),
+      )
       .where(and(eq(outreachCampaigns.orgId, orgId), eq(outreachCampaigns.status, "PENDING_APPROVAL")))
       .limit(50);
 
@@ -91,7 +97,13 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
             {pendingOutreach.map((o) => (
               <Card as="li" key={o.id} size="sm">
                 <div className={c.rowBetween}>
-                  <strong>{o.subject}</strong>
+                  <div>
+                    <strong>{o.subject}</strong>
+                    <div className={c.meta}>
+                      To: {o.prospectCompanyName}
+                      {o.prospectContactEmail ? ` <${o.prospectContactEmail}>` : " (no contact email on file)"}
+                    </div>
+                  </div>
                   <div className={c.row}>
                     <form action={approveOutreach}>
                       <input type="hidden" name="outreachId" value={o.id} />
@@ -107,6 +119,7 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
                     </form>
                   </div>
                 </div>
+                <p className={c.scope}>{o.body}</p>
               </Card>
             ))}
           </ul>

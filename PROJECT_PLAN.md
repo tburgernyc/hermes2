@@ -6,10 +6,10 @@ Pair this with `CLAUDE.md` (the operating contract). This file is the *what and 
 
 ---
 
-## ✅ BUILD STATUS — COMPLETE (2026-06-18)
+## ✅ BUILD STATUS — COMPLETE, LIVE IN PRODUCTION (2026-07-23)
 
-**All build phases (0–7) are code-complete, tested, and merged to `main @ 5f775a2`** — each shipped as its
-own PR behind a green CI gate (the "one phase = one PR = one green gate" cadence). Per-phase markers are inline
+**All build phases (0–7) are code-complete, tested, and merged to `main`** — each shipped as its own PR
+behind a green CI gate (the "one phase = one PR = one green gate" cadence). Per-phase markers are inline
 in §5; the authoritative per-PR record (what shipped, decisions, footguns) lives in `CLAUDE.md` §11.
 
 | Phase | Scope | Status |
@@ -22,12 +22,18 @@ in §5; the authoritative per-PR record (what shipped, decisions, footguns) live
 | 5 | Tokenized submission boundary + vendor portal core | ✅ Merged |
 | 6 | Compliance/pricing/bid briefs + admin console + vendor portal | ✅ Merged |
 | 7 | Marketing site (7a) · hardening (7b) · go-live (7c, PR #19) | ✅ Merged |
+| 8 | Marketing site: premium light-studio visual refresh | ✅ Merged |
+| 9 | Shared UI kit + studio restyle (auth → admin → portal) + strict nonce'd `style-src` | ✅ Merged |
+| 10 | Operational-readiness audit + CRITICAL approvals fix + schema-drift recovery | ✅ Merged |
 
-**What remains is NOT a build task** — it is the operator-side **Tier-1 `fly deploy`** (see `DEPLOY.md §7`:
-secrets incl. `MIGRATION_DATABASE_URL` + `hermes_app` LOGIN, credential rotation, `HERMES_ACTIVE_ORG_IDS`,
-branch protection, external heartbeat, deploy + verify) and the **government-contracts-counsel sign-off**
-before any real bid. Everything ships `pendingCounsel`; the no-auto-submit + counsel-review gates structurally
-block a live submission until `readyForLiveSubmission`. The Prime Directive (no autonomous outbound or
+**The Tier-1 `fly deploy` is done — the app is live at `https://burgergov.com`.** Phases 8–9 and a real
+production incident (a `Dockerfile` fix for a native dependency Next's standalone tracer silently dropped,
+which 500'd `/login` in prod — `CLAUDE.md` §11) all shipped and were verified against live traffic. What's
+left is operator-side, not a build task: confirm the `DEPLOY.md §7` go-live checklist is actually done in the
+live environment (credential rotation, `HERMES_ACTIVE_ORG_IDS`, branch protection, external heartbeat),
+destroy the stray leftover Fly app `hermes2-web`, and the **government-contracts-counsel sign-off** before any
+real bid. Everything ships `pendingCounsel`; the no-auto-submit + counsel-review gates structurally block a
+live submission until `readyForLiveSubmission`. The Prime Directive (no autonomous outbound or
 state-advancing action — `CLAUDE.md` §2) is enforced throughout.
 
 ---

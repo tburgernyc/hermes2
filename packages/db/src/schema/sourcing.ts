@@ -21,6 +21,7 @@ import {
 import { sql } from "drizzle-orm";
 
 import {
+  aiRecommendation,
   awardAmountKind,
   classificationSource,
   contractType,
@@ -54,11 +55,15 @@ export const solicitations = pgTable(
     responseDeadline: timestamp("response_deadline", { withTimezone: true, mode: "date" }),
     scopeText: text("scope_text"), // raw SOW text — treated as data, never instructions
     scopeEmbedding: embedding("scope_embedding"),
+    /** Untrusted-input defense: injection attempts the AI layer detected in submitted quote/scope text. */
+    quoteInjectionAttempts: jsonb("quote_injection_attempts"),
     status: solicitationStatus("status").notNull().default("PENDING_TRIAGE"),
     feasibilityScore: integer("feasibility_score"), // 1..10
     zeroFloatFit: zeroFloatFit("zero_float_fit"),
     rejectionReasons: jsonb("rejection_reasons").$type<string[]>(),
     triageModel: text("triage_model"),
+    triageSummary: text("triage_summary"),
+    triageRecommendation: aiRecommendation("triage_recommendation"),
     triagedAt: timestamp("triaged_at", { withTimezone: true, mode: "date" }),
     sourcingApprovedBy: uuid("sourcing_approved_by"),
     sourcingApprovedAt: timestamp("sourcing_approved_at", { withTimezone: true, mode: "date" }),

@@ -115,6 +115,74 @@ test("admin marks a triaged solicitation no-go (terminal, audited, no outbound)"
   }
 });
 
+test("approvals page shows the full drafted email body and recipient before approve, then approve records it and releases the send gate", async ({
+  page,
+}) => {
+  const db = pool();
+  try {
+    const oid = await orgId(db);
+    // TRIAGE_COMPLETE (not READY_FOR_SOURCING+) so the solicitations_sourcing_gate CHECK doesn't require a
+    // recorded sourcing approver here — this test only needs a valid parent row for the outreach FK.
+    const sol = await db.query<{ id: string }>(
+      `INSERT INTO solicitations (org_id, notice_id, title, contract_type, status)
+       VALUES ($1, $2, $3, 'FFP'::contract_type, 'TRIAGE_COMPLETE'::solicitation_status)
+       RETURNING id`,
+      [oid, `E2E-${randomUUID()}`, `Outreach Solicitation ${randomUUID()}`],
+    );
+    const solId = sol.rows[0]!.id;
+    const contactEmail = `recipient-${randomUUID()}@e2e.test`;
+    const prospect = await db.query<{ id: string }>(
+      `INSERT INTO vendor_prospects (org_id, company_name, contact_email)
+       VALUES ($1, 'Outreach Recipient Co', $2) RETURNING id`,
+      [oid, contactEmail],
+    );
+    const prospectId = prospect.rows[0]!.id;
+    const bodyLine1 = `Full body line one ${randomUUID()}.`;
+    const bodyLine2 = `Full body line two ${randomUUID()}.`;
+    const outreach = await db.query<{ id: string }>(
+      `INSERT INTO outreach_campaigns (org_id, solicitation_id, prospect_id, step, status, subject, body)
+       VALUES ($1, $2, $3, 'DAY_0'::outreach_step, 'PENDING_APPROVAL'::outreach_status, $4, $5)
+       RETURNING id`,
+      [oid, solId, prospectId, `Outreach subject ${randomUUID()}`, `${bodyLine1}\n${bodyLine2}`],
+    );
+    const outreachId = outreach.rows[0]!.id;
+
+    await loginAdmin(page);
+    await page.goto("/admin/approvals");
+
+    // The CRITICAL gap this closes: the approval card must show WHO it's going to and the full drafted
+    // body, not just the subject — an admin cannot approve-and-send something they can't read.
+    await expect(page.getByText(contactEmail)).toBeVisible();
+    await expect(page.getByText("Outreach Recipient Co")).toBeVisible();
+    await expect(page.getByText(bodyLine1)).toBeVisible();
+    await expect(page.getByText(bodyLine2)).toBeVisible();
+
+    // Scope the click to this campaign's own card — the approvals list can show more than one pending
+    // outreach item, and "Approve & send" is not a unique label across the page.
+    const card = page.locator("li").filter({ hasText: contactEmail });
+    await card.getByRole("button", { name: "Approve & send" }).click();
+
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(
+          `SELECT status FROM outreach_campaigns WHERE id = $1`,
+          [outreachId],
+        );
+        return r.rows[0]?.status;
+      })
+      .toBe("APPROVED");
+
+    const audit = await db.query(
+      `SELECT 1 FROM audit_log
+       WHERE org_id = $1 AND actor_type = 'ADMIN' AND action = 'OUTREACH_APPROVED' AND entity_id = $2`,
+      [oid, outreachId],
+    );
+    expect(audit.rowCount).toBe(1);
+  } finally {
+    await db.end();
+  }
+});
+
 test("admin shortlists then selects a winning quote — select records the choice but does NOT advance the solicitation", async ({
   page,
 }) => {

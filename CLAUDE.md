@@ -6,7 +6,7 @@
 
 ---
 
-## 0. Build status — ✅ COMPLETE (2026-06-18)
+## 0. Build status — ✅ COMPLETE, LIVE IN PRODUCTION (2026-07-23)
 
 **All build phases (0–7) are code-complete, tested, and merged to `main`** (Phase 7c via PR #19, merge
 `5f775a2`) — each shipped as its own PR behind a green CI gate. The full pipeline is in the repo: data model
@@ -16,11 +16,23 @@ decision-briefs, the admin operator console, the public marketing site, producti
 (nonce-CSP/headers/rate-limits/Sentry/heartbeat), and the go-live deploy plumbing (Fly `release_command`
 migrations + `/api/health` check). See §11 for the per-PR record and `PROJECT_PLAN.md` for the phase map.
 
-**What remains is operator-side, NOT a build task:** the Tier-1 `fly deploy` (`DEPLOY.md §7` — secrets incl.
-`MIGRATION_DATABASE_URL` + the `hermes_app` LOGIN, credential rotation, `HERMES_ACTIVE_ORG_IDS`, branch
-protection, external heartbeat, deploy + verify) and the **government-contracts-counsel sign-off** before any
-real bid. Everything ships `pendingCounsel`; the no-auto-submit + counsel-review gates (§2/§6) structurally
-block a live submission until `readyForLiveSubmission`.
+**The Tier-1 `fly deploy` has happened — the app is live at `https://burgergov.com`.** Phases 8–9 (marketing
+visual refresh, then a full studio restyle of auth/admin/portal + a strict nonce'd `style-src`, §11) and a
+real production incident (Phase-7c's `Dockerfile` never actually built until PR #31 — `@node-rs/argon2` is a
+native `serverExternalPackage` that Next's standalone tracer silently drops, so `/login` 500'd in prod until
+the runner stage restored it as real `node_modules` dirs with a build-time load smoke-test; see §11) all
+shipped and were verified against real production traffic. **Keep this banner current** — the version
+frozen here for over a month (through 11 merged PRs, including that incident) is exactly the drift class
+§11's next entry had to backfill; don't let it happen again.
+
+**What's left is still operator-side, not a build task:** confirm the go-live checklist items in `DEPLOY.md
+§7` are actually done in the live environment (credential rotation, `HERMES_ACTIVE_ORG_IDS`, branch
+protection required-checks set to `db`/`web-e2e`/`inngest`/`gitleaks`, NOT `db-acceptance`/`audit`/
+`docker-build`, external heartbeat monitor wired to `/api/health`), destroy the stray leftover Fly app
+`hermes2-web` (`DEPLOY.md §7.8` — deployed from an early scaffold, unrelated to the real `hermes2` app), and
+the **government-contracts-counsel sign-off** before any real bid. Everything ships `pendingCounsel`; the
+no-auto-submit + counsel-review gates (§2/§6) structurally block a live submission until
+`readyForLiveSubmission`.
 
 > This contract stays fully in force. The build being "done" changes nothing about how you must behave:
 > the **Prime Directive (§2)** is permanent, and any further work (the deferred tech-debt, fixes, or new
@@ -269,6 +281,198 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
+
+### Phase 10 — Operational-readiness audit + CRITICAL approvals fix + schema-drift recovery — **CODE COMPLETE** (2026-07-23)
+
+A full audit pass (workflow/UI/AI-integration/doc-currency review) found 36 issues, one CRITICAL: the
+`/admin/approvals` human-approval gate — the one screen whose entire job under the Prime Directive (§2) is
+to let a human read an AI-drafted outreach email before it goes to a real subcontractor — selected and
+rendered only the campaign's `subject`, never the drafted `body` or the resolved recipient. Clicking
+"Approve & send" committed to sending an email whose content the admin had never seen, to a recipient
+identifiable only by an internal UUID. The audit also caught the two things this entry and the two below it
+fix: this phase log had gone stale (11 merged PRs since Phase 7c with zero §11 entries, backfilled below),
+and `db-acceptance` had been failing on every unrelated PR because five columns, one enum, and three CHECKs
+existed on the live database but nowhere in this repo.
+
+**What shipped** (two PRs, same session):
+- **PR #34** — `apps/web/app/admin/(console)/approvals/page.tsx` now joins `vendor_prospects` to resolve the
+  recipient's company name/email and selects + renders `outreach_campaigns.body` above the approve/reject
+  buttons, using the same `c.scope` treatment already used for AI-drafted/untrusted text elsewhere in the
+  console — no new styling pattern. New e2e (`admin-console.spec.ts`) seeds a `PENDING_APPROVAL` campaign
+  with a distinctive body + recipient, asserts both render on the page *before* approval (proving the gap is
+  closed), then approves and confirms the pre-existing status/audit-row flow still works unchanged.
+- **PR #35** — recovered the schema drift: new enum `ai_recommendation` (`PURSUE`/`REJECT`/`HUMAN_REVIEW`,
+  shared by two columns — the semantic capability↔scope-match verdict §6 calls a locked build decision);
+  `solicitations.{quote_injection_attempts, triage_summary, triage_recommendation}`;
+  `outreach_campaigns.{ai_match_score, ai_capability_match, ai_strengths, ai_gaps, ai_recommendation}`;
+  `vendor_prospects.discovery_metadata`; `proposals.narrative`; `vendor_quotes.{ai_score, ai_risks}`. All 8
+  columns nullable, no default. Drift guards (`test/helpers/expected-schema.ts`,
+  `test/schema.constraints.test.ts`) updated in lockstep.
+
+**Non-obvious decisions / footguns:**
+- **The real column types came from the live database, not a guess.** `db-acceptance`'s Neon branch clones
+  the project's actual default branch (the workflow's branch-create call passes no `parent_id`), so it
+  always reflects live schema drift — exactly why it caught something the fresh-container `db` job
+  structurally cannot. A temporary, read-only step was added to that job (querying
+  `information_schema.columns` / `pg_enum` / `pg_constraint` on the same already-authorized throwaway
+  branch), run once to capture the real types/nullability/CHECK-ranges/enum labels, then reverted.
+- **The first migration draft would have broken a real deploy.** `drizzle-kit generate`'s plain `CREATE
+  TYPE` / `ADD COLUMN` / `ADD CONSTRAINT` is correct for a clean database but fails "already exists" (Postgres
+  `42710`) the instant it runs anywhere the objects already exist — which is `db-acceptance`'s entire premise,
+  and would equally have failed the Fly `release_command` migration step against production (a non-zero exit
+  there ABORTS the deploy). Fixed by hand-wrapping the enum + 3 CHECKs in `duplicate_object`-tolerant
+  `DO $$ ... EXCEPTION WHEN duplicate_object THEN null; END $$;` blocks and switching every `ADD COLUMN` to
+  `IF NOT EXISTS` — a safe no-op wherever the objects already exist, a normal create everywhere else.
+  `db:generate` re-run afterward confirmed no further pending diff ("No schema changes, nothing to migrate").
+- Both PRs' branch-write access initially failed with a GitHub App permission error (`403: Resource not
+  accessible by integration`) unrelated to either change — resolved by the operator granting the app write
+  access; no code implication, noted only so a future session doesn't misdiagnose a repeat as a code bug.
+
+**Verification:** `pnpm turbo typecheck lint test build` 24/24 on both PRs. CI: PR #34 green on all 7
+required checks (`db-acceptance` red only until #35 merged — non-required, unrelated); PR #35 green on all 8
+checks including `db-acceptance`.
+
+**NEXT:** none queued — this closes the audit's actionable findings that were in-scope for immediate a fix.
+The audit's remaining findings (vendor-portal UX gaps, admin-console navigation/feedback gaps, the unused
+`exportBidDoc`/`embed()` code paths, the `hermes-reference/` stale-directory cleanup) are recorded in the
+audit report and still open for a future pass. All `pendingCounsel`; no real bid until
+`readyForLiveSubmission`.
+
+### Fix — prod-critical: bundle `@node-rs/argon2` into the standalone Docker image (`/login` 500) (2026-06-20)
+
+**PROD-CRITICAL, caught live.** `/login` and every page importing `@/auth` returned 500 in production —
+`Cannot find module '@node-rs/argon2'`. Root cause: `@node-rs/argon2` is a NATIVE `serverExternalPackage`
+(can't be webpack-bundled), and Next's standalone file-trace silently DROPS it — the tracer can't follow its
+dynamic per-platform `.node` `require` (20+ variant paths). `pg`, pure JS, traces fine and was present. CI
+never caught it: `web-e2e` runs `next start` with the full `node_modules`, and the `docker-build` job only
+built the image, never ran it — this was the first time anyone actually executed the standalone artifact
+against real traffic.
+
+**Fix** (`Dockerfile` runner stage): restore the argon2 JS wrapper + its `linux-x64-gnu` glibc binary as real
+directories in the standalone root `node_modules` (matching the `node:22-bookworm-slim` runtime), where
+`@hermes/core`'s `dist` resolves them via the normal Node walk-up. A build-time
+`require("@node-rs/argon2").hashSync(...)` smoke-test now FAILS THE IMAGE BUILD (caught by `docker-build`
+CI) if argon2 can't load, so this exact regression class can never again ship silently. Versions are pinned
+to track `pnpm-lock.yaml`; an argon2 version bump that changes them fails the `COPY` in CI.
+
+**Non-obvious footgun to remember:** any FUTURE native `serverExternalPackage` added to this app needs the
+same treatment (real files copied into the standalone image + a build-time load check) — Next's standalone
+tracer will silently drop it exactly the same way, and neither `web-e2e` nor a `docker-build`-without-a-run
+will catch it. `pg` is the only other `serverExternalPackage` and is pure JS (no native binary), so it
+doesn't need this.
+
+**Verification:** could only be verified by a real deploy (Docker isn't runnable in the build shell) —
+confirmed `/login` returns 200 post-deploy.
+
+### Phase 9 — PR C: studio restyle of the vendor portal + public token pages — **CODE COMPLETE** (2026-06-20)
+
+Stacked on PR B. Migrates the vendor/subcontractor portal (nav, home, My Quotes + detail, Open RFQs, the
+logged-in quote-submit form, My Subcontracts, My Documents) and the PUBLIC token pages (`/quote/[token]`,
+`/optout/[token]`) onto the shared `console` UI kit from PR A/B, plus a new `PublicShell` for the nav-less
+token pages. With PR A + B, this removes the app's last ~14 inline `style={}` props — the whole app is now
+CSS Modules with zero inline styles.
+
+Presentational only: every data query reproduced verbatim (`withVendorRole`/`withTokenRole` unchanged,
+`requireVendor`/`requireVendorWithVendorId` guards, `OPEN_RFQ_STATUSES` gate, `force-dynamic` +
+`runtime="nodejs"`, the documents best-effort signed-URL try/catch); no server action touched
+(`submitQuote`/`optOut` unchanged). Untrusted text (quote notes, SAM title/scope/agency) still rendered as
+data (JSX autoescape) — the XSS e2e holds.
+
+**Verified:** `pnpm turbo typecheck lint build` 8/8; `@hermes/web` unit 50/50. 3-lens adversarial review
+(selector fidelity, a11y/contrast, CSP/data-fidelity): 0 CRITICAL/HIGH/MEDIUM/LOW — every e2e selector
+preserved, AA contrast on every pair, no inline styles. CSP `style-src` still allows `unsafe-inline` until
+PR D.
+
+### Phase 9 — PR D: tighten CSP `style-src` to `'self'` + nonce; custom error pages — **CODE COMPLETE** (2026-06-19)
+
+Stacked on PR C — closes the Phase-9 restyle. Now that PRs A–C removed every inline `style={}`, tightens the
+CSP: `style-src` goes from `'self' 'unsafe-inline'` to `'self' 'nonce-${nonce}'` (the same per-request nonce
+as `script-src`). A nonce in `style-src` disables `'unsafe-inline'` per CSP3, so an injected inline style
+*attribute* is now blocked — matching the already-strict nonce'd `script-src` (no `'unsafe-inline'` anywhere
+in the policy).
+
+The only inline styles Next itself emits are on its default error pages, so this adds custom ones so the
+strict policy never blocks a real page: a custom `app/not-found.tsx` (`PublicShell`, CSS Modules) and
+`app/global-error.tsx` (+ `.module.css`) — the root error boundary, which renders its own `<html>`/`<body>`
+(literal palette values; `globals.css` isn't loaded in that document), reports to Sentry, and keeps one
+intentional hard `<a href="/">` reload (the router context may be gone after a root crash).
+
+**Verified:** `pnpm turbo typecheck lint build` 8/8; `@hermes/web` unit 50/50 (security-headers unit updated
+for the nonce'd `style-src` + no `unsafe-inline`); the prebuilt `_not-found.html` has 0 inline `style=` / 0
+`<style>` tags; `security.spec` asserts the nonce'd `style-src` and adds the 404 page to the zero-CSP-
+violation scan. 2-lens adversarial review (CSP correctness, error-page regression): 0 CRITICAL/HIGH/MEDIUM/
+LOW. This is the "Phase 9 PR D" `style-src` change already cross-referenced in §7.
+
+### Phase 9 — PR B: studio restyle of the admin console + daily brief — **CODE COMPLETE** (2026-06-19)
+
+Migrates the entire admin console to a shared CSS-Module `console` UI kit (`AppNav`, `PageHeader`, `Section`,
+`Card`, `Badge`, `Stat`, `Select`) — the daily brief becomes a stat grid; the kanban, solicitation detail,
+proposal review, vendors, approvals, inquiries, and prospects pages are glass-carded. All ~22 admin inline
+`style` props removed. Also a route-group restructure: console pages move into
+`app/admin/(console)/` (new `(console)/layout.tsx` supplies the nav); `/admin/totp` + `/admin/totp/enroll`
+stay OUTSIDE the group so the auth/step-up pages render nav-less. Route groups are URL-transparent — every
+`/admin/*` URL is unchanged.
+
+Presentational only: every data query reproduced verbatim; no server action, gate, RBAC, or audit changed
+(the action files are pure git renames). §2 intact — approvals remain the only human-gate emitters,
+`selectQuote` still doesn't advance the solicitation, proposal submit is still blocked. Untrusted text still
+rendered as data.
+
+**Verified:** `pnpm turbo typecheck lint build` 8/8; `@hermes/web` unit 50/50. 4-lens adversarial review
+(selector fidelity, route-move/import integrity, a11y/contrast, CSP/Prime-Directive): 0
+CRITICAL/HIGH/MEDIUM/LOW.
+
+### Phase 9 — PR A: shared UI kit + studio restyle of the auth/onboarding pages — **CODE COMPLETE** (2026-06-19)
+
+Introduces the shared CSS-Module UI kit (`apps/web/components/ui/`: `Brand`, `Button`, `Field`, `Alert`,
+`AuthScreen`) that every subsequent Phase-9 PR builds on, and migrates `/login`, `/admin/totp`,
+`/admin/totp/enroll`, `/invite/[token]` onto it as a centered glass "auth card." Presentational only — no
+server action, auth-guard/redirect chain, or invite query touched; every e2e selector preserved; the kit
+components are pure presentational, server-component-safe (no `"use client"`/hooks); no new runtime
+dependency.
+
+**Verified:** `pnpm turbo typecheck lint build` 8/8; `@hermes/web` unit 50/50; existing `auth.spec` +
+`invite.spec` drive every migrated page. 3-lens adversarial review (a11y/contrast, selector fidelity, CSP/
+stack-purity): 0 CRITICAL/HIGH/MEDIUM — every text/background pair AA with margin. CSP `style-src` keeps
+`unsafe-inline` until PR D.
+
+### Phase 8 — Marketing site: premium light-studio visual refresh — **CODE COMPLETE** (2026-06-19)
+
+Aesthetic-only polish of the public BurgerGov marketing pages: NO copy/claims/data changed (`lib/site.ts`
+untouched — the truthfulness invariants from Phase 7a hold), no new dependency, no Tailwind/Framer/R3F —
+the locked CSS-Modules stack, strict CSP, and WCAG 2.1 AA are preserved. An additive "studio" palette +
+glassmorphism token set (scoped under `.shell`, so admin/portal keep their own `--color-*` tokens), an
+extreme-contrast type system (thin massive display headers vs. tiny tracked system-mono caps, no web font),
+frosted glass surfaces + a floating sticky nav, and an aria-hidden, reduced-motion-safe ambient CSS "crystal"
+hero accent. Credentials render as a monospaced "registration record" (still truthful — CAGE stays
+"Pending assignment"). Prime Directive §2 untouched (pure UI, no outbound/state-advance).
+
+**Verified:** `pnpm turbo typecheck lint build` 18/18. 5-lens adversarial review (a11y/contrast, CSP/stack-
+purity, e2e-selector fidelity, truthfulness/Prime-Directive, design quality): 0 CRITICAL/HIGH/MEDIUM, 3 LOW
+(2 folded in). Every `marketing.spec.ts` selector + the axe WCAG A/AA scan preserved.
+
+### Fix — `schema.guards.test.ts` tolerates the go-live `hermes_app` LOGIN (2026-06-19)
+
+`db-acceptance` forks its throwaway branch from the **live production Neon project** — once the operator ran
+the go-live step `ALTER ROLE hermes_app WITH LOGIN PASSWORD …` (`DEPLOY.md §7.2`), every acceptance run
+inherited that LOGIN and tripped the guard test's blanket "all four non-owner roles are NOLOGIN" assertion.
+LOGIN is the app's connection-role property and is operator-controlled per environment, NOT a security
+invariant for `hermes_app` (the app *must* connect as it in prod) — so the test now tolerates LOGIN
+specifically on `hermes_app` while keeping `NOBYPASSRLS`/`NOSUPERUSER` strictly asserted for all four roles,
+and keeping `NOLOGIN` strictly asserted for the three SET-ROLE-only roles (`hermes_token`/`hermes_auth`/
+`hermes_vendor`), which must never gain LOGIN. Test-only change; no migration/schema/app code touched.
+Passes in both the fresh `db` container (`hermes_app` NOLOGIN, not asserted) and a prod-derived
+`db-acceptance` branch (`hermes_app` LOGIN, tolerated).
+
+### Ops — custom domain (`burgergov.com`) cutover + docs catch-up (2026-06-18)
+
+Four small PRs, pre-Phase-8: a canonical `www` → apex `burgergov.com` 308 redirect (`next.config.ts`,
+host-matched, never fires for `localhost`/e2e/`*.fly.dev`) plus `DEPLOY.md §7.8` and the companion
+`docs/DOMAIN_SETUP.md` walkthrough (Zoho DNS zone, `fly certs add` apex + `www`, the A/AAAA/CNAME +
+`_acme-challenge` records, flipping `AUTH_URL`/`APP_BASE_URL` to the apex, verification, and a flagged stray
+Fly app `hermes2-web` to clean up — see §0); and the `PROJECT_PLAN.md`/`CLAUDE.md` "build complete" status
+banners that this same §11 gap left stale for over a month (see the Phase 10 entry above — that drift is
+exactly why this entry exists now instead of on 2026-06-18).
 
 ### Phase 7 — PR 7c: Go-live — Fly release_command migrations + health check + runbook — **CODE COMPLETE** (2026-06-17)
 

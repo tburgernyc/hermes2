@@ -7,6 +7,14 @@ import { pgEnum } from "drizzle-orm/pg-core";
 
 export const userRole = pgEnum("user_role", ["ADMIN", "VENDOR"]);
 
+/**
+ * Granular admin-side access level (§3.6) — orthogonal to the ADMIN/VENDOR portal split. Carried
+ * ONLY by ADMIN-role users (CHECK-enforced on users): FULL = current behavior; CAPTURE =
+ * solicitations/proposals/outreach, no directives/financials; FINANCE = contracts/invoices/
+ * timekeeping, no sourcing/drafting. Enforcement (RLS + server checks) is Phase-B §3.6 work.
+ */
+export const adminRole = pgEnum("admin_role", ["FULL", "CAPTURE", "FINANCE"]);
+
 /** Who performed an audited action (token = low-trust public submission path). */
 export const actorType = pgEnum("actor_type", ["SYSTEM", "ADMIN", "VENDOR", "TOKEN"]);
 
@@ -24,6 +32,37 @@ export const solicitationStatus = pgEnum("solicitation_status", [
   "AWARDED",
   "CLOSED",
   "REJECTED",
+]);
+
+/**
+ * Which side of the deal the firm is on for a pursuit (§3.4). PRIME = the existing pipeline
+ * (the firm bids the government directly, sourcing its own subs). SUBCONTRACTOR = the firm teams
+ * under ANOTHER company's prime contract (admin-logged entry point, teaming_partners counterparty,
+ * teaming_agreements record). Orthogonal to rfi_track_status (§3.8) — the two axes never collide.
+ */
+export const dealRole = pgEnum("deal_role", ["PRIME", "SUBCONTRACTOR"]);
+
+/** Post-decision protest tracking (§3.1) — a lightweight status + free-text notes, not a docket. */
+export const protestStatus = pgEnum("protest_status", [
+  "NONE",
+  "CONSIDERING",
+  "FILED",
+  "RESOLVED_SUSTAINED",
+  "RESOLVED_DENIED",
+  "WITHDRAWN",
+]);
+
+/**
+ * §3.8 sources-sought/RFI capture-development track — deliberately LIGHTER than the bid/award
+ * state machine (no AWARDED/WON/LOST). NULL on solicitations = not on the RFI track. CONVERTED
+ * links forward via solicitations.converted_from_solicitation_id on the NEW pursuit row.
+ */
+export const rfiTrackStatus = pgEnum("rfi_track_status", [
+  "RECEIVED",
+  "CAPABILITY_DRAFTED",
+  "RESPONSE_SUBMITTED",
+  "CONVERTED",
+  "CLOSED_NO_ACTION",
 ]);
 
 /** Reality of the notice (NOT what the firm is eligible for). Eligibility is decided in screening. */
@@ -174,6 +213,73 @@ export const arFollowupStatus = pgEnum("ar_followup_status", [
   "WRITTEN_OFF",
 ]);
 
+/** Prompt-Payment invoice kind (§3.3): progress (14-day gov clock) vs final (30-day). */
+export const invoiceKind = pgEnum("invoice_kind", ["PROGRESS", "FINAL"]);
+
+/**
+ * Outbound-invoice lifecycle (§3.3): the firm invoicing the government (PRIME) or a teaming
+ * partner (SUBCONTRACTOR). paid_at is the revenue-recognition point — and, on a government
+ * invoice, the clock source for the linked subcontractor payable. "Overdue" is computed at
+ * runtime from submitted_at/paid_at, never stored (ar_followups precedent).
+ */
+export const invoiceStatus = pgEnum("invoice_status", ["DRAFT", "SUBMITTED", "PAID", "CANCELLED"]);
+
+/**
+ * Subcontractor-payable state (§3.3). The due date is DERIVED at runtime from the linked
+ * government invoice's paid_at (7/15-day Prompt Payment clock) — deliberately NO stored due date.
+ */
+export const payableStatus = pgEnum("payable_status", ["PENDING", "PAID"]);
+
+/** CPARS-style past-performance rating scale (§3.3) — the standard five-level scheme. */
+export const cparsRating = pgEnum("cpars_rating", [
+  "EXCEPTIONAL",
+  "VERY_GOOD",
+  "SATISFACTORY",
+  "MARGINAL",
+  "UNSATISFACTORY",
+]);
+
+/** DCAA direct/indirect labor segregation (§3.5, DFARS 252.242-7006). */
+export const timeChargeClass = pgEnum("time_charge_class", ["DIRECT", "INDIRECT"]);
+
+/**
+ * Timesheet-period lifecycle (§3.5). APPROVED requires a recorded human approver + timestamp
+ * (CHECK-enforced) — the same human-gate pattern as outreach approval. Status lives at the
+ * PERIOD level; individual time_entries carry no status of their own.
+ */
+export const timesheetStatus = pgEnum("timesheet_status", ["OPEN", "SUBMITTED", "APPROVED"]);
+
+/** The firm's OWN insurance/bonding policy types (§3.7.2 — mirror of vendor COI tracking). */
+export const insurancePolicyType = pgEnum("insurance_policy_type", [
+  "GENERAL_LIABILITY",
+  "PROFESSIONAL_EO",
+  "CYBER",
+  "BOND",
+  "OTHER",
+]);
+
+/** Teaming-agreement lifecycle (§3.4) — deliberately lighter than contracts (the partner's prime
+ * usually furnishes/negotiates the controlling agreement text). */
+export const teamingAgreementStatus = pgEnum("teaming_agreement_status", [
+  "DRAFT",
+  "UNDER_NEGOTIATION",
+  "EXECUTED",
+  "TERMINATED",
+  "CLOSED",
+]);
+
+/** Manual recertification-event log kinds (§3.7.1 — option-year exercise, size recert, M&A). */
+export const complianceEventKind = pgEnum("compliance_event_kind", [
+  "OPTION_YEAR_RECERT",
+  "SIZE_RECERT",
+  "MERGER_ACQUISITION",
+  "OTHER",
+]);
+
+// TEAMING_AGREEMENT / INSURANCE_POLICY (Phase A, §3.4/§3.7): new values are APPENDED — the
+// generated ALTER TYPE ADD VALUE must not be USED in the same migration transaction (PG16 hazard,
+// CLAUDE.md Phase-6 PR-I note), so the owner-XOR CHECK arms that reference them live in MANUAL
+// migration 0012 (runs in a separate transaction after the drizzle batch commits).
 export const documentEntityType = pgEnum("document_entity_type", [
   "SOLICITATION",
   "VENDOR",
@@ -182,6 +288,8 @@ export const documentEntityType = pgEnum("document_entity_type", [
   "PROPOSAL",
   "CONTRACT",
   "CONTRACT_MILESTONE",
+  "TEAMING_AGREEMENT",
+  "INSURANCE_POLICY",
 ]);
 
 export const documentKind = pgEnum("document_kind", [
@@ -195,6 +303,7 @@ export const documentKind = pgEnum("document_kind", [
   "SIGNED_CONTRACT",
   "DELIVERABLE",
   "OTHER",
+  "SUBCONTRACT_DRAFT", // §3.1.4: the AI-drafted, UNSIGNED subcontract awaiting admin review
 ]);
 
 /** Provenance of the is_services classification (NULL is_services ⇒ unclassified ⇒ block). */

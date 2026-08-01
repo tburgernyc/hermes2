@@ -12,6 +12,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO hermes_ap
 -- (The immutability triggers are the belt; this REVOKE is the suspenders.)
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM hermes_app;
 
+-- time_entry_corrections is likewise append-only (§3.5.3 DCAA audit trail — Phase A): the app may
+-- read + append corrections, never rewrite or erase them (0003 triggers are the belt).
+REVOKE UPDATE, DELETE, TRUNCATE ON time_entry_corrections FROM hermes_app;
+
+-- NOTE (Phase A): the new teaming/finance/timekeeping/firm-compliance tables get hermes_app DML
+-- via the ON-ALL-TABLES grant above (this file re-runs after every drizzle migrate) and get NO
+-- hermes_token / hermes_vendor grant — fail-closed; later phases open reads deliberately.
+
 -- hermes_token: the minimal surface for the tokenized prospect/quote submission path.
 -- NOTE: deliberately NO privilege on vendors / proposals / contracts / etc. — a token write
 -- can never touch a vetted vendor or any firm-side row (CLAUDE.md §7).

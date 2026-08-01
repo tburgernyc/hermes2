@@ -103,6 +103,7 @@ export async function seedOrg(db: SeedDatabase, opts: SeedOptions = {}): Promise
       orgId,
       email: adminEmail,
       role: "ADMIN",
+      adminRole: "FULL", // §3.6: every ADMIN carries an explicit access level (CHECK-enforced)
       passwordHash: PASSWORD_RESET_SENTINEL,
       isActive: true,
     });

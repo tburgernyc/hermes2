@@ -118,10 +118,11 @@ d("vendor_invites — single-use + tenant + link boundary", () => {
       const vendorId = await insertVendor(c, orgId);
       // The accept action hardcodes role='VENDOR'; the DB belt is the CHECK — an admin row can never
       // carry a vendor link, so even a buggy/forged accept cannot create a vendor-bound admin.
+      // admin_role is supplied (Phase A §3.6) so the ONLY violated CHECK is the vendor-link rule.
       const err = await capturePgError(() =>
         c.query(
-          `INSERT INTO users (org_id, email, role, password_hash, vendor_id)
-           VALUES ($1, 'admin-link@e.test', 'ADMIN', '!hash', $2)`,
+          `INSERT INTO users (org_id, email, role, password_hash, admin_role, vendor_id)
+           VALUES ($1, 'admin-link@e.test', 'ADMIN', '!hash', 'FULL', $2)`,
           [orgId, vendorId],
         ),
       );

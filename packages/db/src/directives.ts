@@ -141,10 +141,18 @@ export const orgDirectivesSchema = z.object({
     })
     .default({ fringe: 0.31, overhead: 0.42, ga: 0.12, fee: 0.085, wrapSanityMin: 1.6, wrapSanityMax: 2.2 }),
   // Registration gates — part of readyForLiveSubmission; block an ACTUAL bid only, never the workflow.
+  // The two expiration dates (§3.3 / §3.7.1) live HERE, on their natural home, per convergence
+  // decision O1 (one reminder pattern — the shared daily collector cron is Phase-B work; Phase A
+  // ships only the date fields). ISO calendar dates (YYYY-MM-DD); absent = unknown/not yet set,
+  // and the reminder collector treats an absent date as "nothing to remind on" (never fabricated).
   registration: z
     .object({
       samRegistrationActive: z.boolean().default(false), // FAR 52.204-7
       cageAssigned: z.boolean().default(false),
+      /** SAM.gov registration expiry (exactly 365 days from approval) — drives 60/30-day reminders. */
+      samRegistrationExpiresAt: z.iso.date().optional(),
+      /** SAM reps & certs periodic-reconfirmation due date (§3.7.1) — same reminder cadence. */
+      repsCertsRecertDueAt: z.iso.date().optional(),
     })
     .default({ samRegistrationActive: false, cageAssigned: false }),
 });

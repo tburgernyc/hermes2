@@ -118,3 +118,41 @@ describe("orgDirectives provisional baseline + compliance config (PR D)", () => 
     expect(hasUnconfirmedCounselThresholds(confirmed)).toBe(false);
   });
 });
+
+describe("registration expiry dates (Phase A — §3.3 SAM expiration + §3.7.1 reps/certs recert)", () => {
+  it("defaults leave both dates absent (unknown, never fabricated)", () => {
+    const d = defaultDirectives();
+    expect(d.registration.samRegistrationExpiresAt).toBeUndefined();
+    expect(d.registration.repsCertsRecertDueAt).toBeUndefined();
+  });
+
+  it("accepts valid ISO calendar dates", () => {
+    const d = parseDirectives({
+      ...validInput,
+      registration: {
+        samRegistrationActive: true,
+        cageAssigned: true,
+        samRegistrationExpiresAt: "2027-03-14",
+        repsCertsRecertDueAt: "2027-03-01",
+      },
+    });
+    expect(d.registration.samRegistrationExpiresAt).toBe("2027-03-14");
+    expect(d.registration.repsCertsRecertDueAt).toBe("2027-03-01");
+  });
+
+  it.each(["14/03/2027", "2027-3-14", "not-a-date", "2027-03-14T12:00:00Z"])(
+    "rejects a malformed expiration date %s",
+    (bad) => {
+      expect(() =>
+        parseDirectives({
+          ...validInput,
+          registration: {
+            samRegistrationActive: false,
+            cageAssigned: false,
+            samRegistrationExpiresAt: bad,
+          },
+        }),
+      ).toThrow();
+    },
+  );
+});

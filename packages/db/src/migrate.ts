@@ -14,6 +14,9 @@
  *  10. manual/0009_vendor_role.sql  users↔vendors FK + hermes_vendor role + per-vendor RLS isolation
  *  11. manual/0010_vendor_reads.sql vendor RFQ-browse grant/policy + documents EXISTS-to-parent read scope
  *  12. manual/0011_vendor_writes.sql vendor INSERT grants (quote/lines/doc) + audit append + 1-active-quote
+ *  13. manual/0012_phase_a_checks.sql documents owner-XOR rewrite (9 owners) — MUST run after the
+ *      drizzle batch commits: it uses document_entity_type labels 0005 adds via ALTER TYPE ADD
+ *      VALUE, which PostgreSQL forbids using inside the same transaction (55P04).
  *
  * Every manual step is idempotent, so re-running is safe.
  */
@@ -59,6 +62,7 @@ async function main(): Promise<void> {
     await runManual(pool, "0009_vendor_role.sql");
     await runManual(pool, "0010_vendor_reads.sql");
     await runManual(pool, "0011_vendor_writes.sql");
+    await runManual(pool, "0012_phase_a_checks.sql");
 
     // Post-condition: the tokenized line-item insert depends on sync_line_item_contract_type being
     // SECURITY DEFINER (0008 — the token role can't SELECT vendor_quotes the trigger reads). If a future

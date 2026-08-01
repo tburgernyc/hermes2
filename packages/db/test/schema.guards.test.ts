@@ -11,12 +11,17 @@ import { EXPECTED_TABLES } from "./helpers/expected-schema.js";
 
 const d = HAS_DB ? describe : describe.skip;
 
-const UPDATED_AT_TABLES = EXPECTED_TABLES.filter((t) => t !== "audit_log"); // 16 (audit_log is append-only)
+// Append-only tables carry NO updated_at (corrected_at/created_at is the only stamp): audit_log
+// plus the Phase-A DCAA correction trail (§3.5.3), which mirrors audit_log's immutability.
+const APPEND_ONLY_TABLES = new Set(["audit_log", "time_entry_corrections"]);
+const UPDATED_AT_TABLES = EXPECTED_TABLES.filter((t) => !APPEND_ONLY_TABLES.has(t)); // 26 of 28
 
 const EXPECTED_TRIGGERS = new Set<string>([
   ...UPDATED_AT_TABLES.map((t) => `${t}.${t}_set_updated_at`),
   "audit_log.audit_log_no_update_delete",
   "audit_log.audit_log_no_truncate",
+  "time_entry_corrections.time_entry_corrections_no_update_delete",
+  "time_entry_corrections.time_entry_corrections_no_truncate",
   "vendor_quote_line_items.line_items_sync_ct",
   "solicitations.solicitations_submit_guard",
 ]);
@@ -27,6 +32,10 @@ const EXPECTED_TRIGGER_FUNC: Record<string, string> = {
   ...Object.fromEntries(UPDATED_AT_TABLES.map((t) => [`${t}.${t}_set_updated_at`, "set_updated_at"])),
   "audit_log.audit_log_no_update_delete": "audit_log_block_modify",
   "audit_log.audit_log_no_truncate": "audit_log_block_truncate",
+  "time_entry_corrections.time_entry_corrections_no_update_delete":
+    "time_entry_corrections_block_modify",
+  "time_entry_corrections.time_entry_corrections_no_truncate":
+    "time_entry_corrections_block_truncate",
   "vendor_quote_line_items.line_items_sync_ct": "sync_line_item_contract_type",
   "solicitations.solicitations_submit_guard": "solicitation_submit_guard",
 };
@@ -91,6 +100,18 @@ interface PrivRow {
   vendor_audit_select: boolean;
   vendor_users_select: boolean;
   vendor_prospects_select: boolean;
+  // Phase A: the new finance/teaming/timekeeping tables are hermes_app-only (fail-closed for
+  // token + vendor), and the DCAA correction trail is append-only even for the app role.
+  app_invoices_update: boolean;
+  app_corrections_insert: boolean;
+  app_corrections_update: boolean;
+  app_corrections_delete: boolean;
+  token_invoices_select: boolean;
+  token_teaming_select: boolean;
+  token_time_entries_insert: boolean;
+  vendor_invoices_select: boolean;
+  vendor_teaming_select: boolean;
+  vendor_time_entries_select: boolean;
 }
 
 d("guards: triggers, RLS, policies, roles, grants", () => {
@@ -185,7 +206,17 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
            has_table_privilege('hermes_vendor','audit_log','INSERT')        AS vendor_audit_insert,
            has_table_privilege('hermes_vendor','audit_log','SELECT')        AS vendor_audit_select,
            has_table_privilege('hermes_vendor','users','SELECT')           AS vendor_users_select,
-           has_table_privilege('hermes_vendor','vendor_prospects','SELECT') AS vendor_prospects_select`,
+           has_table_privilege('hermes_vendor','vendor_prospects','SELECT') AS vendor_prospects_select,
+           has_table_privilege('hermes_app','invoices','UPDATE')           AS app_invoices_update,
+           has_table_privilege('hermes_app','time_entry_corrections','INSERT') AS app_corrections_insert,
+           has_table_privilege('hermes_app','time_entry_corrections','UPDATE') AS app_corrections_update,
+           has_table_privilege('hermes_app','time_entry_corrections','DELETE') AS app_corrections_delete,
+           has_table_privilege('hermes_token','invoices','SELECT')         AS token_invoices_select,
+           has_table_privilege('hermes_token','teaming_agreements','SELECT') AS token_teaming_select,
+           has_table_privilege('hermes_token','time_entries','INSERT')     AS token_time_entries_insert,
+           has_table_privilege('hermes_vendor','invoices','SELECT')        AS vendor_invoices_select,
+           has_table_privilege('hermes_vendor','teaming_agreements','SELECT') AS vendor_teaming_select,
+           has_table_privilege('hermes_vendor','time_entries','SELECT')    AS vendor_time_entries_select`,
       );
       privs = pr.rows[0];
     } finally {
@@ -199,8 +230,10 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     }
   });
 
-  it("does NOT put an updated_at trigger on the append-only audit_log", () => {
-    expect(triggers.has("audit_log.audit_log_set_updated_at")).toBe(false);
+  it("does NOT put an updated_at trigger on the append-only tables", () => {
+    for (const t of APPEND_ONLY_TABLES) {
+      expect(triggers.has(`${t}.${t}_set_updated_at`), `${t} must not have updated_at`).toBe(false);
+    }
   });
 
   it("binds each trigger to its intended function (not a stale/no-op function)", () => {
@@ -292,5 +325,23 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
     // Still no access to the link/identity (users) or other firms' prospects — unchanged by PR K.
     expect(privs?.vendor_users_select).toBe(false);
     expect(privs?.vendor_prospects_select).toBe(false);
+  });
+
+  it("grants (Phase A): finance/teaming/timekeeping are app-only; the correction trail is append-only", () => {
+    expect(privs).toBeDefined();
+    // hermes_app has DML on the new tables via the 0004 ON-ALL-TABLES grant re-run…
+    expect(privs?.app_invoices_update).toBe(true);
+    expect(privs?.app_corrections_insert).toBe(true);
+    // …EXCEPT the DCAA correction trail, which is append-only even for the app (0004 REVOKE).
+    expect(privs?.app_corrections_update).toBe(false);
+    expect(privs?.app_corrections_delete).toBe(false);
+    // token + vendor roles have ZERO grants on the Phase-A tables (fail-closed; later phases
+    // open reads deliberately, each with its own grant + policy).
+    expect(privs?.token_invoices_select).toBe(false);
+    expect(privs?.token_teaming_select).toBe(false);
+    expect(privs?.token_time_entries_insert).toBe(false);
+    expect(privs?.vendor_invoices_select).toBe(false);
+    expect(privs?.vendor_teaming_select).toBe(false);
+    expect(privs?.vendor_time_entries_select).toBe(false);
   });
 });

@@ -36,15 +36,22 @@ export async function insertOrg(
 export async function insertUser(
   client: PoolClient,
   orgId: string,
-  opts: { email?: string; role?: "ADMIN" | "VENDOR"; passwordHash?: string | null } = {},
+  opts: {
+    email?: string;
+    role?: "ADMIN" | "VENDOR";
+    passwordHash?: string | null;
+    adminRole?: "FULL" | "CAPTURE" | "FINANCE" | null;
+  } = {},
 ): Promise<string> {
   const email = opts.email ?? `user-${uniq()}@example.test`;
   const role = opts.role ?? "VENDOR";
   const passwordHash = opts.passwordHash ?? (role === "ADMIN" ? "!hash" : null);
+  // §3.6 CHECK pair: an ADMIN must carry an admin_role, a VENDOR must not.
+  const adminRole = opts.adminRole !== undefined ? opts.adminRole : role === "ADMIN" ? "FULL" : null;
   const result = await client.query<{ id: string }>(
-    `INSERT INTO users (org_id, email, role, password_hash)
-     VALUES ($1, $2, $3::user_role, $4) RETURNING id`,
-    [orgId, email, role, passwordHash],
+    `INSERT INTO users (org_id, email, role, password_hash, admin_role)
+     VALUES ($1, $2, $3::user_role, $4, $5::admin_role) RETURNING id`,
+    [orgId, email, role, passwordHash, adminRole],
   );
   return firstId(result);
 }
@@ -209,7 +216,9 @@ export async function insertDocument(
       | "VENDOR_QUOTE"
       | "PROPOSAL"
       | "CONTRACT"
-      | "CONTRACT_MILESTONE";
+      | "CONTRACT_MILESTONE"
+      | "TEAMING_AGREEMENT"
+      | "INSURANCE_POLICY";
     solicitationId?: string | null;
     vendorId?: string | null;
     prospectId?: string | null;
@@ -217,6 +226,8 @@ export async function insertDocument(
     proposalId?: string | null;
     contractId?: string | null;
     milestoneId?: string | null;
+    teamingAgreementId?: string | null;
+    insurancePolicyId?: string | null;
     kind?: string;
     storageKey?: string;
     contentType?: string;
@@ -227,8 +238,10 @@ export async function insertDocument(
   const result = await client.query<{ id: string }>(
     `INSERT INTO documents
        (org_id, entity_type, solicitation_id, vendor_id, prospect_id, quote_id, proposal_id,
-        contract_id, milestone_id, kind, storage_key, content_type, byte_size)
-     VALUES ($1, $2::document_entity_type, $3, $4, $5, $6, $7, $8, $9, $10::document_kind, $11, $12, $13)
+        contract_id, milestone_id, teaming_agreement_id, insurance_policy_id, kind, storage_key,
+        content_type, byte_size)
+     VALUES ($1, $2::document_entity_type, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+             $12::document_kind, $13, $14, $15)
      RETURNING id`,
     [
       orgId,
@@ -240,11 +253,168 @@ export async function insertDocument(
       opts.proposalId ?? null,
       opts.contractId ?? null,
       opts.milestoneId ?? null,
+      opts.teamingAgreementId ?? null,
+      opts.insurancePolicyId ?? null,
       opts.kind ?? "OTHER",
       opts.storageKey ?? `orgs/${orgId}/doc-${n}.pdf`,
       opts.contentType ?? "application/pdf",
       opts.byteSize ?? 1024,
     ],
+  );
+  return firstId(result);
+}
+
+/** A milestone on `contractId` (sequence auto-uniqued so one contract can hold several). */
+export async function insertMilestone(
+  client: PoolClient,
+  orgId: string,
+  opts: { contractId: string; sequence?: number; amount?: string },
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO contract_milestones (org_id, contract_id, sequence, description, amount)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [orgId, opts.contractId, opts.sequence ?? uniq(), "Test milestone", opts.amount ?? "1000.00"],
+  );
+  return firstId(result);
+}
+
+/** A teaming partner (§3.4 counterparty — a prime that pays the firm; NOT a vendor). */
+export async function insertTeamingPartner(
+  client: PoolClient,
+  orgId: string,
+  opts: { companyName?: string } = {},
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO teaming_partners (org_id, company_name) VALUES ($1, $2) RETURNING id`,
+    [orgId, opts.companyName ?? `Partner ${uniq()}`],
+  );
+  return firstId(result);
+}
+
+/** A teaming agreement under `partnerId` (§3.4 — the firm engaged AS the subcontractor). */
+export async function insertTeamingAgreement(
+  client: PoolClient,
+  orgId: string,
+  opts: { partnerId: string; solicitationId?: string | null; status?: string },
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO teaming_agreements (org_id, partner_id, solicitation_id, status)
+     VALUES ($1, $2, $3, $4::teaming_agreement_status) RETURNING id`,
+    [orgId, opts.partnerId, opts.solicitationId ?? null, opts.status ?? "DRAFT"],
+  );
+  return firstId(result);
+}
+
+/** An invoice (§3.3): pass contractId XOR teamingAgreementId (the CHECK enforces exactly one). */
+export async function insertInvoice(
+  client: PoolClient,
+  orgId: string,
+  opts: {
+    contractId?: string | null;
+    teamingAgreementId?: string | null;
+    milestoneId?: string | null;
+    amount?: string;
+    status?: string;
+    submittedAt?: Date | null;
+    paidAt?: Date | null;
+  },
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO invoices
+       (org_id, contract_id, teaming_agreement_id, milestone_id, invoice_number, amount,
+        status, submitted_at, paid_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::invoice_status, $8, $9) RETURNING id`,
+    [
+      orgId,
+      opts.contractId ?? null,
+      opts.teamingAgreementId ?? null,
+      opts.milestoneId ?? null,
+      `INV-${uniq()}`,
+      opts.amount ?? "1000.00",
+      opts.status ?? "DRAFT",
+      opts.submittedAt ?? null,
+      opts.paidAt ?? null,
+    ],
+  );
+  return firstId(result);
+}
+
+/** A timesheet period for `userId` (§3.5 — the approval unit; OPEN by default). */
+export async function insertTimesheetPeriod(
+  client: PoolClient,
+  orgId: string,
+  opts: {
+    userId: string;
+    periodStart?: string;
+    periodEnd?: string;
+    status?: string;
+    submittedAt?: Date | null;
+    approvedBy?: string | null;
+    approvedAt?: Date | null;
+  },
+): Promise<string> {
+  // Distinct start dates per call so one user can hold several periods (unique (org,user,start)).
+  const day = String((uniq() % 27) + 1).padStart(2, "0");
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO timesheet_periods
+       (org_id, user_id, period_start, period_end, status, submitted_at, approved_by, approved_at)
+     VALUES ($1, $2, $3, $4, $5::timesheet_status, $6, $7, $8) RETURNING id`,
+    [
+      orgId,
+      opts.userId,
+      opts.periodStart ?? `2026-07-${day}`,
+      opts.periodEnd ?? "2026-07-31",
+      opts.status ?? "OPEN",
+      opts.submittedAt ?? null,
+      opts.approvedBy ?? null,
+      opts.approvedAt ?? null,
+    ],
+  );
+  return firstId(result);
+}
+
+/** A time entry for `userId` (§3.5). INDIRECT by default so no contract is required. */
+export async function insertTimeEntry(
+  client: PoolClient,
+  orgId: string,
+  opts: {
+    userId: string;
+    workDate?: string;
+    hours?: string;
+    chargeClass?: "DIRECT" | "INDIRECT";
+    contractId?: string | null;
+    description?: string;
+    periodId?: string | null;
+  },
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO time_entries
+       (org_id, user_id, work_date, hours, charge_class, contract_id, description, period_id)
+     VALUES ($1, $2, $3, $4, $5::time_charge_class, $6, $7, $8) RETURNING id`,
+    [
+      orgId,
+      opts.userId,
+      opts.workDate ?? "2026-07-15",
+      opts.hours ?? "8.00",
+      opts.chargeClass ?? "INDIRECT",
+      opts.contractId ?? null,
+      opts.description ?? "Worked on test tasks",
+      opts.periodId ?? null,
+    ],
+  );
+  return firstId(result);
+}
+
+/** One of the firm's OWN insurance policies (§3.7.2). */
+export async function insertInsurancePolicy(
+  client: PoolClient,
+  orgId: string,
+  opts: { policyType?: string } = {},
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO business_insurance_policies (org_id, policy_type)
+     VALUES ($1, $2::insurance_policy_type) RETURNING id`,
+    [orgId, opts.policyType ?? "GENERAL_LIABILITY"],
   );
   return firstId(result);
 }

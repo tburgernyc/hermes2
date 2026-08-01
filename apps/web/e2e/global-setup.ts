@@ -50,8 +50,8 @@ export default async function globalSetup(): Promise<void> {
 
     const adminRow = await pool.query<{ id: string }>(
       `INSERT INTO users
-         (org_id, email, role, password_hash, totp_secret_ciphertext, totp_enrolled_at, is_active)
-       VALUES ($1, $2, 'ADMIN', $3, $4, now(), true)
+         (org_id, email, role, admin_role, password_hash, totp_secret_ciphertext, totp_enrolled_at, is_active)
+       VALUES ($1, $2, 'ADMIN', 'FULL', $3, $4, now(), true)
        ON CONFLICT (lower(email)) DO UPDATE SET
          password_hash = EXCLUDED.password_hash,
          totp_secret_ciphertext = EXCLUDED.totp_secret_ciphertext,

@@ -20,7 +20,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-import { actorType, userRole } from "./enums.js";
+import { actorType, adminRole, userRole } from "./enums.js";
 import { timestamps, uuidPk } from "./_shared.js";
 import type { OrgDirectives } from "../directives.js";
 
@@ -61,6 +61,13 @@ export const users = pgTable(
     passwordHash: text("password_hash"), // argon2id; required for admins (CHECK)
     role: userRole("role").notNull().default("VENDOR"),
     /**
+     * Granular admin access level (§3.6): REQUIRED for ADMIN-role users, FORBIDDEN for VENDOR-role
+     * users (the paired CHECKs below). Deliberately NO column default: every admin-creation path
+     * must make an explicit choice — a silent FULL default would be a privilege-grant footgun.
+     * The Phase-A migration backfills existing ADMIN rows to FULL before the CHECK lands.
+     */
+    adminRole: adminRole("admin_role"),
+    /**
      * Link to the vetted vendor this user represents (vendor-account portal). NULL for admins and for
      * not-yet-linked vendor users. Set ONLY by an admin action (never self-asserted) — mirrors the §7
      * trust boundary. The composite (org_id, vendor_id) FK is added in manual migration 0009 (declaring
@@ -86,6 +93,9 @@ export const users = pgTable(
     ),
     // Only a VENDOR-role user may carry a vendor link; an admin row can never be vendor-bound.
     check("users_vendor_link_role", sql`${t.vendorId} IS NULL OR ${t.role} = 'VENDOR'`),
+    // §3.6 pairing: every ADMIN carries an explicit admin_role; a VENDOR never does.
+    check("users_admin_role_required", sql`${t.role} <> 'ADMIN' OR ${t.adminRole} IS NOT NULL`),
+    check("users_vendor_no_admin_role", sql`${t.role} <> 'VENDOR' OR ${t.adminRole} IS NULL`),
   ],
 );
 

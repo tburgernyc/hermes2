@@ -57,6 +57,47 @@ const EXPECTED_CHECKS: string[] = [
   "documents_owner_matches_type",
   "vendor_invites_accept_pair",
   "contact_inquiries_text_present",
+  // ---- Phase A (§3.1): users granular roles + solicitation award-outcome block ----
+  "users_admin_role_required",
+  "users_vendor_no_admin_role",
+  "solicitations_awarded_value_nonneg",
+  "solicitations_outcome_gate",
+  "solicitations_lm_provenance",
+  // ---- Phase A (§3.1.4 / §7.3): contracts agreement-review gate + signer pairing ----
+  "contracts_esign_requires_review",
+  "contracts_vendor_signed_pair",
+  // ---- Phase A (O3 / §3.7.3): documents retention review pairing ----
+  "documents_retention_review_pair",
+  // ---- Phase A (§3.4): teaming ----
+  "teaming_partners_name_present",
+  "teaming_partners_uei_format",
+  "teaming_partners_cage_format",
+  "teaming_agreements_pricing_nonneg",
+  "teaming_agreements_pop_order",
+  // ---- Phase A (§3.3): finance ----
+  "invoices_link_xor",
+  "invoices_amount_nonneg",
+  "invoices_number_present",
+  "invoices_milestone_requires_contract",
+  "invoices_submitted_requires_timestamp",
+  "invoices_paid_requires_timestamp",
+  "payables_amount_nonneg",
+  "payables_paid_requires_timestamp",
+  "past_perf_period_order",
+  "ai_usage_tokens_nonneg",
+  "ai_usage_cost_nonneg",
+  // ---- Phase A (§3.5): timekeeping ----
+  "timesheet_periods_period_order",
+  "timesheet_periods_approval_gate",
+  "timesheet_periods_submit_requires_timestamp",
+  "time_entries_hours_range",
+  "time_entries_direct_requires_contract",
+  "time_entries_milestone_requires_contract",
+  "time_entries_description_present",
+  "time_entry_corrections_reason_present",
+  // ---- Phase A (§3.7): firm-side compliance ----
+  "insurance_coverage_nonneg",
+  "insurance_effective_order",
 ];
 
 // confdeltype: 'r' = RESTRICT, 'c' = CASCADE.
@@ -74,6 +115,32 @@ const EXPECTED_FK_DELETE: Record<string, string> = {
   documents_prospect_fk: "c",
   line_items_quote_fk: "c",
   milestones_contract_fk: "c",
+  // ---- Phase A: every new FK is RESTRICT (financial/legal/labor history is never erased) ----
+  solicitations_outcome_recorder_fk: "r",
+  solicitations_converted_from_fk: "r",
+  contracts_agreement_reviewer_fk: "r",
+  contracts_vendor_signer_fk: "r",
+  documents_teaming_agreement_fk: "r", // legal artifact: never cascade-delete
+  documents_insurance_policy_fk: "r",
+  documents_retention_reviewer_fk: "r",
+  teaming_agreements_partner_fk: "r",
+  teaming_agreements_solicitation_fk: "r",
+  invoices_contract_fk: "r",
+  invoices_teaming_agreement_fk: "r",
+  invoices_milestone_fk: "r",
+  payables_contract_fk: "r",
+  payables_invoice_fk: "r", // the Prompt-Payment clock source must survive
+  past_perf_contract_fk: "r",
+  past_perf_recorder_fk: "r",
+  timesheet_periods_user_fk: "r",
+  timesheet_periods_approver_fk: "r",
+  time_entries_user_fk: "r",
+  time_entries_contract_fk: "r",
+  time_entries_period_fk: "r",
+  time_entries_invoice_fk: "r",
+  corrections_entry_fk: "r", // an entry with corrections can never be deleted (DCAA trail)
+  corrections_user_fk: "r",
+  compliance_events_recorder_fk: "r",
 };
 
 const EXPECTED_VECTOR_COLUMNS = [
@@ -115,6 +182,15 @@ const EXPECTED_UNIQUE = [
   // vendor_invites: both are FULL (non-partial) unique indexes — token_jti/token_hash are NOT NULL.
   "vendor_invites_jti_key",
   "vendor_invites_token_hash_key",
+  // ---- Phase A: composite-FK targets + natural keys ----
+  "teaming_partners_org_id_id_key",
+  "teaming_agreements_org_id_id_key",
+  "invoices_org_id_id_key",
+  "invoices_org_number_key", // one invoice number per org (the firm's own numbering sequence)
+  "timesheet_periods_org_id_id_key",
+  "timesheet_periods_user_start_key", // one period per (user, start date)
+  "time_entries_org_id_id_key",
+  "business_insurance_policies_org_id_id_key",
 ];
 
 interface IndexInfo {

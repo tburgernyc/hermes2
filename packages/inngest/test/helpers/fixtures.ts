@@ -57,6 +57,8 @@ export async function insertUser(
       orgId,
       email: `user-${uniq()}@example.test`,
       role,
+      // Phase A (§3.6): every ADMIN row must carry an explicit admin_role (CHECK-enforced).
+      adminRole: role === "ADMIN" ? "FULL" : null,
       passwordHash: role === "ADMIN" ? "!hash" : null,
     })
     .returning({ id: users.id });

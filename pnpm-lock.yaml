@@ -124,6 +124,9 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@types/node':
+        specifier: 22.19.21
+        version: 22.19.21
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -155,6 +158,9 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@types/node':
+        specifier: 22.19.21
+        version: 22.19.21
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -177,6 +183,9 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@types/node':
+        specifier: 22.19.21
+        version: 22.19.21
       '@types/pg':
         specifier: 8.20.0
         version: 8.20.0
@@ -245,6 +254,9 @@ importers:
         specifier: 3.49.0
         version: 3.49.0(@opentelemetry/core@2.8.0(@opentelemetry/api@1.9.1))(next@15.4.10(@opentelemetry/api@1.9.1)(@playwright/test@1.60.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@5.9.3)(zod@4.4.3)
     devDependencies:
+      '@types/node':
+        specifier: 22.19.21
+        version: 22.19.21
       '@types/pg':
         specifier: 8.20.0
         version: 8.20.0

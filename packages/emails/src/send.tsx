@@ -8,7 +8,8 @@ import { Resend } from "resend";
 
 import { OutreachEmail } from "./templates/OutreachEmail.js";
 import { MorningBrief } from "./templates/MorningBrief.js";
-import type { MorningBriefInput, OutreachEmailInput } from "./types.js";
+import { LossNotificationEmail } from "./templates/LossNotificationEmail.js";
+import type { LossNotificationEmailInput, MorningBriefInput, OutreachEmailInput } from "./types.js";
 
 const DEFAULT_FROM = "Burger Consulting <opportunities@burgergov.com>";
 
@@ -38,6 +39,23 @@ export async function sendOutreachEmail(input: OutreachEmailInput): Promise<{ id
     text,
   });
   if (error) throw new Error(`Resend outreach send failed: ${error.message}`);
+  return { id: data?.id };
+}
+
+/** Send the (already admin-approved) loss notification to a non-selected subcontractor/prospect. */
+export async function sendLossNotificationEmail(
+  input: LossNotificationEmailInput,
+): Promise<{ id?: string }> {
+  const html = await render(<LossNotificationEmail {...input} />);
+  const text = await render(<LossNotificationEmail {...input} />, { plainText: true });
+  const { data, error } = await getResend().emails.send({
+    from: fromAddress(),
+    to: input.to,
+    subject: `Update on your quote — ${input.solicitationTitle}`,
+    html,
+    text,
+  });
+  if (error) throw new Error(`Resend loss-notification send failed: ${error.message}`);
   return { id: data?.id };
 }
 

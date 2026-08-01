@@ -94,6 +94,19 @@ export default async function MyQuoteDetail({
       />
 
       <Card>
+        {quote.status === "SELECTED" && (
+          <p className={c.meta} data-testid="quote-outcome-message">
+            You have been SELECTED as the awarded subcontractor for this solicitation. Once we finish
+            reviewing the subcontract agreement, we will reach out to begin e-signature — no action is
+            needed from you yet.
+          </p>
+        )}
+        {quote.status === "REJECTED" && (
+          <p className={c.meta} data-testid="quote-outcome-message">
+            You were not selected for this solicitation. Thank you for submitting a quote — we welcome you
+            to quote on future opportunities.
+          </p>
+        )}
         <ul className={c.list}>
           <li className={c.rowBetween}>
             <span className={c.meta}>Status</span>

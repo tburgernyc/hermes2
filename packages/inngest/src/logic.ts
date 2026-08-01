@@ -14,15 +14,22 @@
  *     CHECKs are a third layer). No model score can satisfy that condition.
  *   - Every autonomous write and every approval appends an audit_log row (actorType SYSTEM / ADMIN).
  */
+import { randomUUID } from "node:crypto";
+
 import type { Engine } from "@hermes/ai";
-import { buildCostModel, FailClosedError, MODELS } from "@hermes/ai";
+import { buildCostModel, FailClosedError, MODELS, renderSubcontractDraftText } from "@hermes/ai";
+import type { SubcontractMilestoneInput } from "@hermes/ai";
 // Operators come from @hermes/db (the package that owns the drizzle-orm instance) so their SQL<> types
 // match the table objects — never import these from "drizzle-orm" directly (see packages/db/src/orm.ts).
 import {
   and,
   arFollowups,
+  auditLog,
   awardIntelligence,
+  contractMilestones,
+  contracts,
   desc,
+  documents,
   eq,
   gte,
   hasUnconfirmedCounselThresholds,
@@ -38,10 +45,11 @@ import {
   vendorProspects,
   vendorQuoteLineItems,
   vendorQuotes,
+  vendors,
   type Tx,
 } from "@hermes/db";
-import { hashToken, mintToken } from "@hermes/core";
-import type { BriefItem, MorningBriefInput, OutreachEmailInput } from "@hermes/emails";
+import { contractDocumentKey, getStorage, hashToken, mintToken, sha256Hex } from "@hermes/core";
+import type { BriefItem, LossNotificationEmailInput, MorningBriefInput, OutreachEmailInput } from "@hermes/emails";
 
 import { writeAudit, type FetchResult } from "./safety.js";
 
@@ -67,7 +75,15 @@ const LIVE_STATUSES = [
 
 /** Injected collaborators. Production wires the live engine / Resend / SSRF-guarded fetch; tests mock. */
 export interface LogicDeps {
-  ai: Pick<Engine, "triageSolicitation" | "scoreProspect" | "draftSOW" | "evaluateQuotes" | "draftBid">;
+  ai: Pick<
+    Engine,
+    | "triageSolicitation"
+    | "scoreProspect"
+    | "draftSOW"
+    | "evaluateQuotes"
+    | "draftBid"
+    | "draftSubcontractAgreement"
+  >;
   sendOutreachEmail: (input: OutreachEmailInput) => Promise<{ id?: string }>;
   sendBriefEmail: (input: MorningBriefInput) => Promise<{ id?: string }>;
   fetchDoc: (
@@ -894,6 +910,409 @@ export async function draftProposalBid(
     },
   });
   return { status: "DRAFTED", proposalId: inserted!.id };
+}
+
+/* ===================================================================================
+ * DRAFT SUBCONTRACT — triggered by the hermes/solicitation.awarded HUMAN-GATE event (emitted only by an
+ * admin recording a government AWARD decision — §3.1). Cascades the `contracts` row + an initial milestone
+ * schedule from the already-SELECTED winning quote's line items, then drafts the (unsigned) subcontract
+ * agreement: model narrative (prose) + the DETERMINISTIC FAR flow-down clause list, stored as a
+ * SUBCONTRACT_DRAFT document. It never sends anything to the vendor and never starts e-signature — that is
+ * a SEPARATE, explicit admin review + confirm action (the review surface). Fail-closed: an award recorded
+ * without a WON proposal / SELECTED quote, a winning quote whose party is a prospect never promoted to a
+ * vetted vendor (the contracts.awarded_vendor_id FK requires one), zero line items, or a FailClosedError
+ * from the model all leave NO contract row. Idempotent: a second event for an already-drafted solicitation
+ * is a no-op.
+ * =================================================================================== */
+export async function draftSubcontract(
+  tx: Tx,
+  deps: LogicDeps,
+  args: { orgId: string; solicitationId: string; awardedBy: string },
+): Promise<
+  | { status: "DRAFTED"; contractId: string; documentId: string }
+  | { status: "ALREADY_DRAFTED"; contractId: string }
+  | { status: "NOT_FOUND" }
+  | { status: "REFUSED" }
+  | { status: "FAILED_CLOSED" }
+> {
+  const { orgId, solicitationId } = args;
+
+  // Idempotency: one contract per solicitation. A retried/duplicate event is a no-op.
+  const existing = await tx
+    .select({ id: contracts.id })
+    .from(contracts)
+    .where(and(eq(contracts.orgId, orgId), eq(contracts.solicitationId, solicitationId)))
+    .limit(1);
+  if (existing.length > 0) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "SUBCONTRACT_DRAFT_SKIPPED_EXISTS",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { contractId: existing[0]!.id },
+    });
+    return { status: "ALREADY_DRAFTED", contractId: existing[0]!.id };
+  }
+
+  const [sol] = await tx
+    .select()
+    .from(solicitations)
+    .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)))
+    .limit(1);
+  if (!sol) return { status: "NOT_FOUND" };
+
+  // Defense in depth: the human award-recording action already set status=AWARDED + outcomeRecordedBy
+  // before emitting the event. If not, refuse — something emitted the gate event out of band.
+  if (sol.status !== "AWARDED" || !sol.outcomeRecordedBy) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "SUBCONTRACT_DRAFT_REFUSED_NOT_AWARDED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { status: sol.status },
+    });
+    return { status: "REFUSED" };
+  }
+
+  // Award preconditions must be honest: a proposal that was actually human-submitted and won.
+  const [prop] = await tx
+    .select()
+    .from(proposals)
+    .where(and(eq(proposals.orgId, orgId), eq(proposals.solicitationId, solicitationId)))
+    .limit(1);
+  if (!prop || prop.status !== "WON" || !prop.selectedQuoteId) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "SUBCONTRACT_DRAFT_REFUSED_NO_WINNING_PROPOSAL",
+      entityType: "solicitations",
+      entityId: solicitationId,
+    });
+    return { status: "REFUSED" };
+  }
+
+  const [q] = await tx
+    .select()
+    .from(vendorQuotes)
+    .where(
+      and(
+        eq(vendorQuotes.orgId, orgId),
+        eq(vendorQuotes.id, prop.selectedQuoteId),
+        eq(vendorQuotes.status, "SELECTED"),
+      ),
+    )
+    .limit(1);
+  if (!q) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "SUBCONTRACT_DRAFT_REFUSED_NO_WINNER",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { quoteId: prop.selectedQuoteId },
+    });
+    return { status: "REFUSED" };
+  }
+
+  // contracts.awarded_vendor_id FK requires a VETTED vendor row (RESTRICT). A prospect-based SELECTED
+  // quote (submitted via the tokenized public path, never promoted+linked to a vendor) cannot cascade to
+  // a contract yet — fail closed rather than fabricate a vendor link. The admin promotes+links the
+  // prospect at /admin/vendors, then this can be re-triggered (re-emitting the award event is a no-op-safe
+  // retry since nothing was written here).
+  if (!q.vendorId) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "SUBCONTRACT_DRAFT_FAILED_CLOSED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { stage: "vendor_not_vetted", quoteId: q.id },
+    });
+    return { status: "FAILED_CLOSED" };
+  }
+
+  const lines = await tx
+    .select()
+    .from(vendorQuoteLineItems)
+    .where(and(eq(vendorQuoteLineItems.orgId, orgId), eq(vendorQuoteLineItems.quoteId, q.id)));
+  // No line items → no milestone schedule and no concrete contract_type. Fail closed.
+  if (lines.length === 0) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "SUBCONTRACT_DRAFT_FAILED_CLOSED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { stage: "no_line_items" },
+    });
+    return { status: "FAILED_CLOSED" };
+  }
+
+  const [vendor] = await tx
+    .select()
+    .from(vendors)
+    .where(and(eq(vendors.orgId, orgId), eq(vendors.id, q.vendorId)))
+    .limit(1);
+  if (!vendor) {
+    // Should be unreachable given the FK on vendor_quotes.vendor_id, but never crash the workflow.
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "SUBCONTRACT_DRAFT_FAILED_CLOSED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { stage: "vendor_row_missing" },
+    });
+    return { status: "FAILED_CLOSED" };
+  }
+
+  const [org] = await tx
+    .select({ directives: orgs.directives, name: orgs.name })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+  const dir = parseDirectives(org?.directives);
+
+  const totalValueUsd = num(q.totalPrice);
+  const contractType = lines[0]!.contractType;
+  // One milestone per quote line item — honest and simple (no fabricated dates: dueDate stays null unless
+  // a real schedule is entered later by the admin).
+  const milestones: SubcontractMilestoneInput[] = lines.map((l, i) => ({
+    sequence: i + 1,
+    description: `${l.costType}: ${l.description}`,
+    amount: l.extendedAmount != null ? num(l.extendedAmount) : num(l.unitRate) * num(l.quantity),
+    dueDate: null,
+  }));
+
+  const winningQuoteSummary = [
+    `Awarded subcontractor quote total: ${q.totalPrice ?? money2(totalValueUsd)}.`,
+    "Line items:",
+    ...lines.map(
+      (l) => `- ${l.costType} ${l.description}: ${num(l.quantity)} × ${num(l.unitRate)} = ${l.extendedAmount ?? ""}`,
+    ),
+    q.notes ? `Notes: ${q.notes}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  let pkg;
+  try {
+    pkg = await deps.ai.draftSubcontractAgreement({
+      solicitationTitle: sol.title,
+      scopeText: sol.scopeText ?? "",
+      winningQuoteSummary, // q.notes flows through here; the engine fences it as untrusted data
+      contractType,
+      totalValueUsd,
+      milestones,
+      flowDown: {
+        valueUsd: totalValueUsd,
+        popDays: null, // no start/end date substrate yet — treated conservatively (see subcontract.ts)
+        vendorIsSmallBusiness:
+          vendor.smallBusinessStatus === "SMALL"
+            ? true
+            : vendor.smallBusinessStatus === "OTHER_THAN_SMALL"
+              ? false
+              : undefined,
+      },
+      provisionalRatesMode: dir.provisionalRatesMode,
+    });
+  } catch (err) {
+    if (err instanceof FailClosedError) {
+      await writeAudit(tx, {
+        orgId,
+        actorType: "SYSTEM",
+        action: "SUBCONTRACT_DRAFT_FAILED_CLOSED",
+        entityType: "solicitations",
+        entityId: solicitationId,
+        after: { stage: err.stage },
+      });
+      return { status: "FAILED_CLOSED" };
+    }
+    throw err; // transient → Inngest retries
+  }
+
+  // §3.3 Prompt Payment: accelerated payments apply when the subcontractor is itself small (schema
+  // default is true — "the firm's subs are small"); flip false only on a confirmed non-small vendor.
+  const acceleratedPayments = vendor.smallBusinessStatus !== "OTHER_THAN_SMALL";
+
+  const [insertedContract] = await tx
+    .insert(contracts)
+    .values({
+      orgId,
+      solicitationId,
+      proposalId: prop.id,
+      awardedVendorId: q.vendorId,
+      contractType,
+      totalValue: money2(totalValueUsd),
+      popStart: sol.awardDate ?? new Date(),
+      popEnd: null, // no known end date — never fabricated
+      status: "PENDING_SIGNATURE",
+      esignStatus: "NOT_STARTED",
+      acceleratedPayments,
+    })
+    .returning({ id: contracts.id });
+  const contractId = insertedContract!.id;
+
+  for (const m of milestones) {
+    await tx.insert(contractMilestones).values({
+      orgId,
+      contractId,
+      sequence: m.sequence,
+      description: m.description,
+      amount: m.amount != null ? money2(m.amount) : null,
+      dueDate: m.dueDate,
+    });
+  }
+
+  await writeAudit(tx, {
+    orgId,
+    actorType: "SYSTEM",
+    action: "CONTRACT_CREATED",
+    entityType: "contracts",
+    entityId: contractId,
+    after: { solicitationId, awardedVendorId: q.vendorId, totalValue: money2(totalValueUsd) },
+  });
+
+  // Render + store the drafted (UNSIGNED) subcontract agreement — pending admin review. No auto-send to
+  // the vendor; the review surface's confirm action is the only way past NOT_STARTED e-signature (the
+  // contracts_esign_requires_review CHECK is the DB backstop).
+  const documentId = randomUUID();
+  const text = renderSubcontractDraftText(pkg, {
+    orgName: org?.name ?? "Burger Consulting LLC",
+    vendorName: vendor.companyName,
+    solicitationTitle: sol.title,
+  });
+  const bytes = new TextEncoder().encode(text);
+  const key = contractDocumentKey(orgId, contractId, documentId, "md");
+  await getStorage().put(key, bytes, "text/markdown");
+
+  await tx.insert(documents).values({
+    id: documentId,
+    orgId,
+    entityType: "CONTRACT",
+    contractId,
+    kind: "SUBCONTRACT_DRAFT",
+    storageKey: key,
+    contentType: "text/markdown",
+    byteSize: bytes.byteLength,
+    sha256: sha256Hex(bytes),
+    magicByteValidated: true, // system-generated bytes, not a client upload — no magic-byte check applies
+  });
+
+  await writeAudit(tx, {
+    orgId,
+    actorType: "SYSTEM",
+    action: "SUBCONTRACT_DRAFTED",
+    entityType: "contracts",
+    entityId: contractId,
+    after: {
+      documentId,
+      provisional: pkg.provisional,
+      applicableClauseCount: pkg.applicableFlowDownClauses.length,
+    },
+  });
+
+  return { status: "DRAFTED", contractId, documentId };
+}
+
+/* ===================================================================================
+ * SEND LOSS NOTIFICATION — §3.1 item 5. Called directly (not via a durable Inngest function) from the
+ * approvals Server Action inside a withOrg transaction once an admin explicitly clicks "Approve & send" —
+ * mirrors sendOutreach's network-call-inside-the-tx shape, minus the durable waitForEvent gate (a single,
+ * low-stakes informational email needs no retry/expiry machinery). The selectQuote cascade QUEUES a
+ * candidate notification as a LOSS_NOTIFICATION_QUEUED audit row per losing quote (audit_log doubles as the
+ * lightweight, no-new-table approval queue — the honest vendor-facing status flip on the quote itself does
+ * NOT depend on this email ever sending). REFUSES to send unless a matching queued row exists and no
+ * LOSS_NOTIFICATION_SENT row already does (best-effort idempotence against a double-click — audit_log
+ * carries no unique constraint to make this fully race-free, an accepted low-stakes limitation).
+ *
+ * Resilience: unlike sendOutreach (whose send runs inside a RETRIED Inngest step), this runs directly
+ * inside the admin's own request — so a Resend failure (misconfiguration, transient API error) must NOT
+ * crash the human's click or corrupt the queue. A failed send is caught and audited as
+ * LOSS_NOTIFICATION_SEND_FAILED (never a LOSS_NOTIFICATION_SENT row); the item stays queued so a later
+ * "Approve & send" click retries it.
+ * =================================================================================== */
+export interface LossNotificationDeps {
+  sendLossNotificationEmail: (input: LossNotificationEmailInput) => Promise<{ id?: string }>;
+}
+
+export async function sendLossNotification(
+  tx: Tx,
+  deps: LossNotificationDeps,
+  args: { orgId: string; quoteId: string; approvedBy: string; approverEmail: string | null },
+): Promise<{ status: "SENT" | "SKIPPED" | "FAILED" }> {
+  const { orgId, quoteId } = args;
+
+  const queuedRows = await tx
+    .select({ after: auditLog.after })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.orgId, orgId),
+        eq(auditLog.action, "LOSS_NOTIFICATION_QUEUED"),
+        eq(auditLog.entityType, "vendor_quotes"),
+        eq(auditLog.entityId, quoteId),
+      ),
+    )
+    .orderBy(desc(auditLog.createdAt))
+    .limit(1);
+  const queued = queuedRows[0];
+  if (!queued) return { status: "SKIPPED" }; // nothing pending for this quote
+
+  const alreadySent = await tx
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.orgId, orgId),
+        eq(auditLog.action, "LOSS_NOTIFICATION_SENT"),
+        eq(auditLog.entityId, quoteId),
+      ),
+    )
+    .limit(1);
+  if (alreadySent.length > 0) return { status: "SKIPPED" }; // already sent — idempotent no-op
+
+  const payload = queued.after as
+    | { to?: unknown; companyName?: unknown; solicitationTitle?: unknown }
+    | null;
+  const to = typeof payload?.to === "string" ? payload.to : null;
+  if (!to) return { status: "SKIPPED" }; // no contact email was ever queued for this quote
+  const companyName = typeof payload?.companyName === "string" ? payload.companyName : "Subcontractor";
+  const solicitationTitle =
+    typeof payload?.solicitationTitle === "string" ? payload.solicitationTitle : "the solicitation";
+
+  let emailId: string | undefined;
+  try {
+    const email = await deps.sendLossNotificationEmail({ to, companyName, solicitationTitle });
+    emailId = email.id;
+  } catch (err) {
+    // Fail closed on the SEND, not on the human's click: never let a Resend outage / misconfiguration
+    // (e.g. no RESEND_API_KEY) throw an uncaught exception through the Server Action. The item stays
+    // queued (no SENT row) so a later approval click retries it.
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "LOSS_NOTIFICATION_SEND_FAILED",
+      entityType: "vendor_quotes",
+      entityId: quoteId,
+      after: { to, error: err instanceof Error ? err.message : String(err) },
+    });
+    return { status: "FAILED" };
+  }
+
+  await writeAudit(tx, {
+    orgId,
+    actorType: "ADMIN", // a human clicked "Approve & send"
+    actorUserId: args.approvedBy,
+    actorEmail: args.approverEmail,
+    action: "LOSS_NOTIFICATION_SENT",
+    entityType: "vendor_quotes",
+    entityId: quoteId,
+    after: { to, emailId: emailId ?? null },
+  });
+  return { status: "SENT" };
 }
 
 /* ===================================================================================

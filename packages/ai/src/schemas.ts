@@ -67,3 +67,24 @@ export const ProposalNarrative = z.object({
   assumptions: z.array(z.string()).default([]),
 });
 export type ProposalNarrative = z.infer<typeof ProposalNarrative>;
+
+/**
+ * draftSubcontractAgreement narrative (§3.1.4) — prose only. The FAR flow-down clause list, the period of
+ * performance / payment-milestone summary structure, and every dollar amount are computed deterministically
+ * (subcontract.ts); the model drafts the scope-of-work prose and the protective-terms body text for each
+ * standard section. It must not invent facts, dollar amounts, or legal conclusions.
+ */
+export const SubcontractNarrative = z.object({
+  scopeOfWork: z.string(),
+  periodOfPerformanceSummary: z.string(),
+  paymentScheduleSummary: z.string(),
+  protectiveTerms: z
+    .array(z.object({ term: z.string(), body: z.string() }))
+    .min(1)
+    .describe(
+      "One entry per standard protective term: indemnification, insurance requirements, confidentiality, " +
+        "IP/work-product ownership, termination for convenience, termination for cause, warranty, and " +
+        "dispute resolution/governing law.",
+    ),
+});
+export type SubcontractNarrative = z.infer<typeof SubcontractNarrative>;

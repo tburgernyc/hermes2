@@ -14,11 +14,19 @@ import {
   MODELS,
   UNTRUSTED_RULE,
 } from "./client.js";
-import { ProposalNarrative, ProspectScore, QuoteRanking, SowBrief, TriageVerdict } from "./schemas.js";
+import {
+  ProposalNarrative,
+  ProspectScore,
+  QuoteRanking,
+  SowBrief,
+  SubcontractNarrative,
+  TriageVerdict,
+} from "./schemas.js";
 import {
   buildComplianceChecklist,
   maxSubMarkupRatio,
   type ChecklistContext,
+  type ContractType,
   type SubmissionGates,
 } from "./compliance.js";
 import {
@@ -27,6 +35,12 @@ import {
   type BidPackage,
   type BidPricingInput,
 } from "./bid.js";
+import {
+  assembleSubcontractPackage,
+  type FlowDownInput,
+  type SubcontractMilestoneInput,
+  type SubcontractPackage,
+} from "./subcontract.js";
 
 const TRIAGE_RUBRIC =
   "You triage U.S. federal IT solicitations for a small-business prime under the 'Zero-Float' doctrine: " +
@@ -87,6 +101,21 @@ export interface Engine {
     title: string;
     package: BidPackage;
   }): Promise<{ fileId?: string; raw: unknown }>;
+  /**
+   * §3.1.4: draft the actual subcontract agreement once a `contracts` row exists (post-award). Model
+   * narrative (scope/PoP/payment prose + protective-terms body text) + DETERMINISTIC FAR flow-down clause
+   * list + milestone schedule. Never sent to the vendor automatically — requires an explicit admin review.
+   */
+  draftSubcontractAgreement(input: {
+    solicitationTitle: string;
+    scopeText: string;
+    winningQuoteSummary: string;
+    contractType: ContractType;
+    totalValueUsd: number;
+    milestones: SubcontractMilestoneInput[];
+    flowDown: FlowDownInput;
+    provisionalRatesMode?: boolean;
+  }): Promise<SubcontractPackage>;
 }
 
 export function createEngine(client: Anthropic): Engine {
@@ -259,6 +288,49 @@ export function createEngine(client: Anthropic): Engine {
       });
       return { fileId: findGeneratedFileId(resp), raw: resp };
     },
+
+    /* ---------- Subcontract agreement: narrative (Opus) + DETERMINISTIC flow-down + milestones ---------- */
+    async draftSubcontractAgreement(input) {
+      const milestoneSummary = input.milestones.length
+        ? input.milestones
+            .map((m) => `${m.sequence}. ${m.description} — ${m.amount ?? "TBD"}`)
+            .join("\n")
+        : "No milestones provided.";
+      const narrative = await callStructured(client, {
+        schema: SubcontractNarrative,
+        schemaName: "SubcontractNarrative",
+        system: cachedSystem(
+          "Draft a subcontract agreement's scope-of-work summary, period-of-performance/payment summary, " +
+            "and standard protective-terms body text (indemnification, insurance requirements, " +
+            "confidentiality, IP/work-product ownership, termination for convenience, termination for " +
+            "cause, warranty, and dispute resolution/governing law) for BOTH the prime and the " +
+            "subcontractor. Use only the amounts, dates, and milestones provided — do not invent facts, " +
+            "dollar amounts, or assert legal conclusions. " +
+            UNTRUSTED_RULE,
+        ),
+        user: [
+          `Solicitation: ${input.solicitationTitle}`,
+          fenceUntrusted("sam.gov_solicitation", input.scopeText),
+          "Selected (awarded) subcontractor quote:",
+          fenceUntrusted("winning_quote", input.winningQuoteSummary),
+          `Contract type: ${input.contractType}`,
+          `Total subcontract value: $${input.totalValueUsd.toFixed(2)}`,
+          `Milestone schedule:\n${milestoneSummary}`,
+          "Return the SubcontractNarrative.",
+        ].join("\n\n"),
+        model: MODELS.draft,
+        maxTokens: 4096,
+      });
+      // Every gate below is deterministic (Prime Directive §2) — the model contributed PROSE only.
+      return assembleSubcontractPackage({
+        narrative,
+        contractType: input.contractType,
+        totalValueUsd: input.totalValueUsd,
+        milestones: input.milestones,
+        flowDown: input.flowDown,
+        provisionalRatesMode: input.provisionalRatesMode,
+      });
+    },
   };
 }
 
@@ -320,3 +392,5 @@ export const exportProposalDoc: Engine["exportProposalDoc"] = (input) =>
   getEngine().exportProposalDoc(input);
 export const draftBid: Engine["draftBid"] = (input) => getEngine().draftBid(input);
 export const exportBidDoc: Engine["exportBidDoc"] = (input) => getEngine().exportBidDoc(input);
+export const draftSubcontractAgreement: Engine["draftSubcontractAgreement"] = (input) =>
+  getEngine().draftSubcontractAgreement(input);

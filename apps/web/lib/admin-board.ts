@@ -64,3 +64,17 @@ export const QUALIFIABLE_PROSPECT_STATUSES = ["NEW", "SCREENED", "CONTACTED", "R
 export function isQualifiableProspectStatus(status: string): boolean {
   return (QUALIFIABLE_PROSPECT_STATUSES as readonly string[]).includes(status);
 }
+
+/**
+ * §3.1: a solicitation's government-award OUTCOME (AWARDED / REJECTED / CLOSED) can only be recorded once
+ * it has actually been human-submitted to the agency — never earlier in the pipeline (recording an award
+ * on an un-submitted pursuit would be dishonest). Single source of truth shared by the solicitation detail
+ * page (which form to render) and the recordOutcome action's atomic guard, so the UI and the write can
+ * never drift apart (mirrors QUALIFIABLE_PROSPECT_STATUSES).
+ */
+export const OUTCOME_RECORDABLE_STATUSES = ["SUBMITTED"] as const;
+
+/** Whether a solicitation in this status may have its government-award outcome recorded. */
+export function isOutcomeRecordableStatus(status: string): boolean {
+  return (OUTCOME_RECORDABLE_STATUSES as readonly string[]).includes(status);
+}

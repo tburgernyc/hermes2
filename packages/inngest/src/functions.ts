@@ -13,13 +13,14 @@
  */
 import { getEngine } from "@hermes/ai";
 import { withOrg } from "@hermes/db";
-import { sendBriefEmail, sendOutreachEmail } from "@hermes/emails";
+import { sendBriefEmail, sendLossNotificationEmail, sendOutreachEmail } from "@hermes/emails";
 
 import { inngest } from "./client.js";
 import { safeFetchDocument } from "./safety.js";
 import {
   composeMorningBrief,
   draftProposalBid,
+  draftSubcontract,
   expireOutreach,
   findUnrankedSolicitationIds,
   ingestSolicitations,
@@ -28,6 +29,7 @@ import {
   onSourcingApproved,
   rankQuotes,
   runArFollowups,
+  sendLossNotification,
   sendOutreach,
   triage,
   type LogicDeps,
@@ -149,6 +151,23 @@ export const draftProposalBidFn = inngest.createFunction(
   },
 );
 
+/* ========== POST-HUMAN-AWARD — cascade the subcontract + draft the agreement (no send) ===== */
+// Triggered by the hermes/solicitation.awarded human-gate event (emitted ONLY by an admin recording a
+// government AWARD decision — §3.1). The human already gated by recording the award, so this is
+// event-triggered, NOT a waitForEvent gate. It creates the `contracts` row + milestones from the already-
+// SELECTED winning quote and drafts the (unsigned) subcontract agreement — it never sends anything to the
+// vendor and never starts e-signature (a separate, explicit admin review + confirm action does that).
+export const draftSubcontractFn = inngest.createFunction(
+  { id: "draft-subcontract", retries: 2 },
+  { event: "hermes/solicitation.awarded" },
+  async ({ event, step }) => {
+    const { orgId, solicitationId, awardedBy } = event.data;
+    return step.run("draft", () =>
+      withOrg(orgId, (tx) => draftSubcontract(tx, defaultDeps(), { orgId, solicitationId, awardedBy })),
+    );
+  },
+);
+
 /* ============================ AUTONOMOUS — Quote detector (every 15 min) =================== */
 export const quoteDetectorFn = inngest.createFunction(
   { id: "quote-detector", retries: 2 },
@@ -217,6 +236,27 @@ export const morningBriefFn = inngest.createFunction(
   },
 );
 
+/* ===== POST-HUMAN-APPROVAL — send a queued loss notification (§3.1 item 5, not a durable fn) ===== */
+// A thin, ready-wired call for the approvals Server Action (apps/web/app/admin/(console)/approvals). NOT a
+// durable Inngest function: sending is a single Resend call gated by an explicit admin "Approve & send"
+// click, so no retry/durability/waitForEvent machinery is warranted (mirrors sendOutreach's dependency
+// wiring, minus the gate — the human already gated by clicking approve). apps/web calls this directly
+// rather than adding a new package dependency on @hermes/emails.
+export async function sendApprovedLossNotification(
+  orgId: string,
+  quoteId: string,
+  approvedBy: string,
+  approverEmail: string | null,
+): Promise<{ status: "SENT" | "SKIPPED" | "FAILED" }> {
+  return withOrg(orgId, (tx) =>
+    sendLossNotification(
+      tx,
+      { sendLossNotificationEmail },
+      { orgId, quoteId, approvedBy, approverEmail },
+    ),
+  );
+}
+
 /* ============================ External dead-man's-switch heartbeat ========================= */
 // An app that is down cannot alert on itself (CLAUDE.md §7). Ping an EXTERNAL monitor (healthchecks.io
 // style) every ~10 min; the monitor alerts the operator if pings stop. HEARTBEAT_URL is operator-set, so
@@ -246,6 +286,7 @@ export const functions = [
   onSourcingApprovedFn,
   outreachGateFn,
   draftProposalBidFn,
+  draftSubcontractFn,
   quoteDetectorFn,
   usaspendingFn,
   deadlineFn,

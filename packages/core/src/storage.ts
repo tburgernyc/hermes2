@@ -15,6 +15,9 @@ const DEFAULT_SIGNED_URL_TTL_SECONDS = 300; // 5 minutes
 export interface StorageDriver {
   readonly name: "tigris" | "memory";
   put(key: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  /** Read an object's bytes back (§3.1.4 — the admin review surface renders the drafted SUBCONTRACT_DRAFT
+   *  document inline rather than only offering a download link). Throws if the key does not exist. */
+  get(key: string): Promise<Uint8Array>;
   signedGetUrl(key: string, ttlSeconds?: number): Promise<string>;
 }
 
@@ -47,6 +50,12 @@ const tigrisDriver: StorageDriver = {
       new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentType: contentType }),
     );
   },
+  async get(key) {
+    const bucket = requireEnv("TIGRIS_BUCKET");
+    const res = await tigrisClient().send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    if (!res.Body) throw new Error(`Object not found: ${key}`);
+    return res.Body.transformToByteArray();
+  },
   async signedGetUrl(key, ttlSeconds = DEFAULT_SIGNED_URL_TTL_SECONDS) {
     const bucket = requireEnv("TIGRIS_BUCKET");
     return getSignedUrl(tigrisClient(), new GetObjectCommand({ Bucket: bucket, Key: key }), {
@@ -65,6 +74,11 @@ const memoryDriver: StorageDriver = {
   name: "memory",
   async put(key, bytes, contentType) {
     memoryStore.set(key, { bytes, contentType });
+  },
+  async get(key) {
+    const entry = memoryStore.get(key);
+    if (!entry) throw new Error(`Object not found: ${key}`);
+    return entry.bytes;
   },
   async signedGetUrl(key) {
     // A non-fetchable but inspectable stand-in; the memory driver is never used in production.
@@ -111,4 +125,19 @@ export function vendorQuoteDocumentKey(
   ext: string,
 ): string {
   return `orgs/${orgId}/vendors/${vendorId}/quotes/${quoteId}.${ext}`;
+}
+
+/**
+ * Org + contract-scoped object key for a SYSTEM-generated contract document (§3.1.4 — the AI-drafted,
+ * pre-signature SUBCONTRACT_DRAFT, and later a signed final). Keyed by documentId (not a fixed filename)
+ * so multiple documents can exist against the same contract over time (a draft revision, then the signed
+ * copy) without ever overwriting each other in storage.
+ */
+export function contractDocumentKey(
+  orgId: string,
+  contractId: string,
+  documentId: string,
+  ext: string,
+): string {
+  return `orgs/${orgId}/contracts/${contractId}/documents/${documentId}.${ext}`;
 }

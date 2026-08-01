@@ -1,17 +1,20 @@
 "use server";
 
 /**
- * The human-approval surface — and the ONLY place in the system that emits a human-gate event or sets a
- * `*_approved_by` column (CLAUDE.md §2 Prime Directive). Each action re-checks the admin session
- * server-side (requireAdmin → role + satisfied TOTP), records the approver + an audit row inside an
- * org-scoped transaction, and THEN emits the Inngest event that lets the durable workflow proceed. A cron,
- * a model, or any autonomous job cannot reach this code: it requires an authenticated admin request, and
- * Next.js Server Actions are same-origin/CSRF-protected by default.
+ * The human-approval surface — and the ONLY place in the system that emits a human-gate event, sets a
+ * `*_approved_by` column, or sends the §3.1 loss-notification email (CLAUDE.md §2 Prime Directive). Each
+ * action re-checks the admin session server-side (requireAdmin → role + satisfied TOTP), records the
+ * approver + an audit row inside an org-scoped transaction, and THEN emits the Inngest event / sends the
+ * mail that lets the durable workflow proceed. A cron, a model, or any autonomous job cannot reach this
+ * code: it requires an authenticated admin request, and Next.js Server Actions are same-origin/CSRF-
+ * protected by default. approveLossNotification is the explicit approval for the loss-notification email
+ * the selectQuote cascade QUEUES (as an audit_log row) when an admin selects a winning quote — the losing
+ * vendor's honest portal status does NOT depend on this email; only the SEND is gated here.
  */
 import { revalidatePath } from "next/cache";
 
 import { and, eq, outreachCampaigns, solicitations, withOrg } from "@hermes/db";
-import { inngest, writeAudit } from "@hermes/inngest";
+import { inngest, sendApprovedLossNotification, writeAudit } from "@hermes/inngest";
 
 import { requireAdmin } from "@/lib/auth-guard";
 
@@ -149,5 +152,23 @@ export async function rejectOutreach(formData: FormData): Promise<void> {
       data: { orgId, outreachId, rejectedBy: userId },
     });
   }
+  revalidatePath("/admin/approvals");
+}
+
+/**
+ * §3.1 item 5: approve + send a QUEUED loss-notification email to a losing vendor/prospect. The
+ * selectQuote cascade (../solicitations/actions.ts) already flipped the quote to REJECTED and queued a
+ * candidate notification as a LOSS_NOTIFICATION_QUEUED audit row the instant the winner was selected — the
+ * vendor's honest portal status does NOT wait on this action. This is the SEPARATE, explicit outbound
+ * approval the email itself requires (CLAUDE.md §2): only this click sends it. All the DB/send logic lives
+ * in @hermes/inngest (sendLossNotification) so it stays consistent with every other send in the system.
+ */
+export async function approveLossNotification(formData: FormData): Promise<void> {
+  const session = await requireAdmin();
+  const orgId = session.user.orgId;
+  const userId = session.user.id;
+  const quoteId = readId(formData, "quoteId");
+
+  await sendApprovedLossNotification(orgId, quoteId, userId, session.user.email ?? null);
   revalidatePath("/admin/approvals");
 }

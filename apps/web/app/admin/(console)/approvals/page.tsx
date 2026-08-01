@@ -6,22 +6,29 @@
  */
 import type { JSX } from "react";
 
-import { and, desc, eq, outreachCampaigns, solicitations, vendorProspects, withOrg } from "@hermes/db";
+import { and, auditLog, desc, eq, outreachCampaigns, solicitations, vendorProspects, withOrg } from "@hermes/db";
 
 import { Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
 import { requireAdmin } from "@/lib/auth-guard";
 
-import { approveOutreach, approveSourcing, rejectOutreach } from "./actions";
+import { approveLossNotification, approveOutreach, approveSourcing, rejectOutreach } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+interface PendingLossNotification {
+  quoteId: string;
+  to: string;
+  companyName: string;
+  solicitationTitle: string;
+}
 
 export default async function ApprovalsPage(): Promise<JSX.Element> {
   const session = await requireAdmin();
   const orgId = session.user.orgId;
 
-  const { triaged, pendingOutreach } = await withOrg(orgId, async (tx) => {
+  const { triaged, pendingOutreach, pendingLossNotifications } = await withOrg(orgId, async (tx) => {
     const triaged = await tx
       .select({
         id: solicitations.id,
@@ -51,7 +58,38 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
       .where(and(eq(outreachCampaigns.orgId, orgId), eq(outreachCampaigns.status, "PENDING_APPROVAL")))
       .limit(50);
 
-    return { triaged, pendingOutreach };
+    // §3.1 item 5: audit_log doubles as the lightweight loss-notification approval queue (no new table,
+    // O4) — a candidate is "pending" iff it was QUEUED and has no matching SENT row for the same quote.
+    const queuedRows = await tx
+      .select({ entityId: auditLog.entityId, after: auditLog.after, createdAt: auditLog.createdAt })
+      .from(auditLog)
+      .where(and(eq(auditLog.orgId, orgId), eq(auditLog.action, "LOSS_NOTIFICATION_QUEUED")))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(200);
+    const sentRows = await tx
+      .select({ entityId: auditLog.entityId })
+      .from(auditLog)
+      .where(and(eq(auditLog.orgId, orgId), eq(auditLog.action, "LOSS_NOTIFICATION_SENT")));
+    const sentIds = new Set(sentRows.map((r) => r.entityId));
+
+    const seen = new Set<string>();
+    const pendingLossNotifications: PendingLossNotification[] = [];
+    for (const r of queuedRows) {
+      if (!r.entityId || sentIds.has(r.entityId) || seen.has(r.entityId)) continue;
+      seen.add(r.entityId);
+      const payload = r.after as { to?: unknown; companyName?: unknown; solicitationTitle?: unknown } | null;
+      const to = typeof payload?.to === "string" ? payload.to : null;
+      if (!to) continue; // nothing queued with no resolvable contact email
+      pendingLossNotifications.push({
+        quoteId: r.entityId,
+        to,
+        companyName: typeof payload?.companyName === "string" ? payload.companyName : "Subcontractor",
+        solicitationTitle:
+          typeof payload?.solicitationTitle === "string" ? payload.solicitationTitle : "the solicitation",
+      });
+    }
+
+    return { triaged, pendingOutreach, pendingLossNotifications };
   });
 
   return (
@@ -120,6 +158,33 @@ export default async function ApprovalsPage(): Promise<JSX.Element> {
                   </div>
                 </div>
                 <p className={c.scope}>{o.body}</p>
+              </Card>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <Section title="Loss notifications awaiting approval" count={pendingLossNotifications.length}>
+        {pendingLossNotifications.length === 0 ? (
+          <p className={c.empty}>None.</p>
+        ) : (
+          <ul className={c.list}>
+            {pendingLossNotifications.map((n) => (
+              <Card as="li" key={n.quoteId} size="sm">
+                <div className={c.rowBetween}>
+                  <div>
+                    <strong>{n.companyName}</strong>
+                    <div className={c.meta}>
+                      {n.to} · not selected for &quot;{n.solicitationTitle}&quot;
+                    </div>
+                  </div>
+                  <form action={approveLossNotification}>
+                    <input type="hidden" name="quoteId" value={n.quoteId} />
+                    <Button type="submit" size="sm">
+                      Approve &amp; send
+                    </Button>
+                  </form>
+                </div>
               </Card>
             ))}
           </ul>

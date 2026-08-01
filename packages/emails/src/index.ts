@@ -6,4 +6,5 @@
 export * from "./types.js";
 export { OutreachEmail } from "./templates/OutreachEmail.js";
 export { MorningBrief } from "./templates/MorningBrief.js";
-export { sendOutreachEmail, sendBriefEmail } from "./send.js";
+export { LossNotificationEmail } from "./templates/LossNotificationEmail.js";
+export { sendOutreachEmail, sendBriefEmail, sendLossNotificationEmail } from "./send.js";

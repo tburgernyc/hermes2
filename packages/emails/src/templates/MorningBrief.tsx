@@ -45,6 +45,8 @@ export function MorningBrief({
   rankedQuotes,
   deadlines,
   arOverdue,
+  complianceReminders,
+  paymentsAtRisk,
   approvalsUrl,
 }: MorningBriefInput) {
   return (
@@ -67,6 +69,10 @@ export function MorningBrief({
           <ItemList title="Deadlines within 72 hours" items={deadlines} />
           <Hr />
           <ItemList title="Overdue accounts receivable" items={arOverdue} />
+          <Hr />
+          <ItemList title="Compliance reminders (SAM registration / reps & certs)" items={complianceReminders} />
+          <Hr />
+          <ItemList title="Subcontractor payments at risk or missed (Prompt Payment)" items={paymentsAtRisk} />
           <Hr />
           <Text style={{ fontSize: "13px" }}>
             Review and approve at <Link href={approvalsUrl}>{approvalsUrl}</Link>. Nothing is sent or

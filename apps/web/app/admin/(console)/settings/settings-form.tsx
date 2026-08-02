@@ -144,6 +144,26 @@ export function SettingsForm({
             CAGE code has been assigned
           </span>
         </label>
+        <div className={c.row}>
+          <Field
+            label="SAM.gov registration expires"
+            name="samRegistrationExpiresAt"
+            type="date"
+            defaultValue={directives.registration.samRegistrationExpiresAt ?? ""}
+            hint="Registrations expire exactly 365 days from approval. Drives the 60/30-day reminder below."
+          />
+          <Field
+            label="Reps & certs recert due"
+            name="repsCertsRecertDueAt"
+            type="date"
+            defaultValue={directives.registration.repsCertsRecertDueAt ?? ""}
+            hint="Periodic reps/certs reconfirmation deadline. Same 60/30-day reminder cadence."
+          />
+        </div>
+        <p className={c.meta}>
+          Leave blank if unknown — the reminder never fabricates a date; it simply has nothing to remind on
+          until you set one.
+        </p>
       </Section>
 
       <Section title="Scope & go/no-go">

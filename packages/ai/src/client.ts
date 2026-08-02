@@ -7,6 +7,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 
+import { reportAiUsage, usageEventFrom } from "./usage.js";
+
 // ANTHROPIC_API_KEY is the APP runtime key (fly secrets / app-loaded .env). It must NEVER be exported
 // into the shell that runs Claude Code (CLAUDE.md §4 — billing separation). Lazy so the package stays
 // importable without a key (mirrors @hermes/db's getDb()).
@@ -102,6 +104,7 @@ export async function callStructured<S extends z.ZodType>(
         messages: [{ role: "user", content: user }],
         output_config: { format },
       });
+      await reportAiUsage(usageEventFrom(model, schemaName, resp.usage));
       if (resp.parsed_output != null) return schema.parse(resp.parsed_output) as z.infer<S>;
       const text = textOf(resp.content);
       if (text) return schema.parse(JSON.parse(stripCodeFence(text))) as z.infer<S>;
@@ -127,6 +130,7 @@ export async function callStructured<S extends z.ZodType>(
         ],
         tool_choice: { type: "tool", name: schemaName },
       });
+      await reportAiUsage(usageEventFrom(model, schemaName, resp.usage));
       const toolUse = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       if (toolUse) return schema.parse(toolUse.input) as z.infer<S>;
       throw new Error("forced tool returned no tool_use block");

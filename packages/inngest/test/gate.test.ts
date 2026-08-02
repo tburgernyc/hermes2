@@ -12,6 +12,7 @@ import {
   deadlineFn,
   draftProposalBidFn,
   draftSubcontractFn,
+  financeComplianceMonitorFn,
   functions,
   heartbeatFn,
   morningBriefFn,
@@ -24,9 +25,9 @@ import {
 } from "../src/functions.js";
 
 describe("durable function registry", () => {
-  it("registers all twelve functions, including the approval gate", () => {
+  it("registers all thirteen functions, including the approval gate", () => {
     expect(functions).toContain(outreachGateFn);
-    expect(functions).toHaveLength(12);
+    expect(functions).toHaveLength(13);
     // No accidental duplicates — every served function is a distinct object.
     expect(new Set(functions).size).toBe(functions.length);
   });
@@ -34,6 +35,8 @@ describe("durable function registry", () => {
   it("keeps the gate distinct from every autonomous / event-triggered function", () => {
     // draftProposalBidFn / draftSubcontractFn are event-triggered (they react to a human-gate event, like
     // triageFn reacts to ingest) — neither is the outreach waitForEvent gate, and neither sends or submits.
+    // financeComplianceMonitorFn is the §3.3 daily read-only monitor, the SAME cron shape as
+    // deadlineFn/arFn (Decision-of-record for this unit's DoD proof item).
     const nonGate = [
       samScan,
       triageFn,
@@ -44,6 +47,7 @@ describe("durable function registry", () => {
       usaspendingFn,
       deadlineFn,
       arFn,
+      financeComplianceMonitorFn,
       morningBriefFn,
       heartbeatFn,
     ];

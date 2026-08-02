@@ -16,12 +16,13 @@
  */
 import { randomUUID } from "node:crypto";
 
-import type { Engine } from "@hermes/ai";
+import type { AiUsageEvent, Engine } from "@hermes/ai";
 import { buildCostModel, FailClosedError, MODELS, renderSubcontractDraftText } from "@hermes/ai";
 import type { SubcontractMilestoneInput } from "@hermes/ai";
 // Operators come from @hermes/db (the package that owns the drizzle-orm instance) so their SQL<> types
 // match the table objects — never import these from "drizzle-orm" directly (see packages/db/src/orm.ts).
 import {
+  aiUsageEvents,
   and,
   arFollowups,
   auditLog,
@@ -34,6 +35,7 @@ import {
   gte,
   hasUnconfirmedCounselThresholds,
   inArray,
+  invoices,
   isNull,
   lte,
   outreachCampaigns,
@@ -41,6 +43,7 @@ import {
   parseDirectives,
   proposals,
   solicitations,
+  subcontractorPayables,
   users,
   vendorProspects,
   vendorQuoteLineItems,
@@ -48,7 +51,15 @@ import {
   vendors,
   type Tx,
 } from "@hermes/db";
-import { contractDocumentKey, getStorage, hashToken, mintToken, sha256Hex } from "@hermes/core";
+import {
+  contractDocumentKey,
+  expiryReminderLevel,
+  getStorage,
+  hashToken,
+  mintToken,
+  sha256Hex,
+  subcontractorPaymentDeadline,
+} from "@hermes/core";
 import type { BriefItem, LossNotificationEmailInput, MorningBriefInput, OutreachEmailInput } from "@hermes/emails";
 
 import { writeAudit, type FetchResult } from "./safety.js";
@@ -1425,6 +1436,155 @@ export async function runArFollowups(tx: Tx, args: { orgId: string }): Promise<B
 }
 
 /**
+ * Rough, PROVISIONAL per-token USD pricing (§3.3 AI cost observability) — NOT verified against the live
+ * Anthropic pricing page (CLAUDE.md §4: "verify current per-token pricing … before baking any cost
+ * model"). This is a directional cost SIGNAL for the admin dashboard, never an invoice reconciliation.
+ * $ per MILLION tokens. An unrecognized model yields a null estimate rather than a fabricated one.
+ */
+const MODEL_PRICING_USD_PER_MTOK: Record<
+  string,
+  { input: number; output: number; cacheRead: number; cacheWrite: number }
+> = {
+  [MODELS.draft]: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  [MODELS.triage]: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  [MODELS.bulk]: { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
+};
+
+function estimateCostUsd(event: AiUsageEvent): string | null {
+  const pricing = MODEL_PRICING_USD_PER_MTOK[event.model];
+  if (!pricing) return null; // unrecognized model — never fabricate a cost
+  const cost =
+    (event.inputTokens / 1_000_000) * pricing.input +
+    (event.outputTokens / 1_000_000) * pricing.output +
+    (event.cacheReadTokens / 1_000_000) * pricing.cacheRead +
+    (event.cacheWriteTokens / 1_000_000) * pricing.cacheWrite;
+  return cost.toFixed(6);
+}
+
+/**
+ * Persist one AI call's token usage (§3.3 AI cost observability). Called from functions.ts inside the
+ * same org-scoped tx as the AI-calling logic function, via the `withAiUsageSink` hook (@hermes/ai) that
+ * captures every callStructured/messages.create made during that call. Append-only, org-scoped only (no
+ * business FK — ai_usage_events is a high-volume telemetry table, not a domain record).
+ */
+export async function recordAiUsageEvent(tx: Tx, orgId: string, event: AiUsageEvent): Promise<void> {
+  await tx.insert(aiUsageEvents).values({
+    orgId,
+    model: event.model,
+    functionName: event.functionName,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    cacheReadTokens: event.cacheReadTokens,
+    cacheWriteTokens: event.cacheWriteTokens,
+    estimatedCostUsd: estimateCostUsd(event),
+  });
+}
+
+/**
+ * §3.3: SAM.gov registration expiry + reps/certs recertification reminders — the SAME 60/30-day cadence
+ * SAM.gov itself uses, mirroring the existing deadline/AR collector pattern (read-only; folds into the
+ * morning brief + the admin dashboard, never an outbound email — CLAUDE.md §2). `expiresAt` absent on
+ * either date means "not yet set" and is correctly excluded (never a fabricated countdown).
+ */
+export async function monitorSamRegistration(
+  tx: Tx,
+  args: { orgId: string; now?: Date },
+): Promise<BriefItem[]> {
+  const now = args.now ?? new Date();
+  const [row] = await tx
+    .select({ directives: orgs.directives })
+    .from(orgs)
+    .where(eq(orgs.id, args.orgId))
+    .limit(1);
+  if (!row) return [];
+  const directives = parseDirectives(row.directives);
+  const items: BriefItem[] = [];
+
+  const sam = expiryReminderLevel({
+    expiresAt: directives.registration.samRegistrationExpiresAt
+      ? new Date(directives.registration.samRegistrationExpiresAt)
+      : null,
+    now,
+  });
+  if (sam.level !== "NONE") {
+    items.push({
+      label: "SAM.gov registration",
+      detail:
+        sam.level === "EXPIRED"
+          ? `EXPIRED ${Math.abs(sam.daysRemaining ?? 0)} day(s) ago`
+          : `expires in ${sam.daysRemaining} day(s)`,
+    });
+  }
+
+  const recert = expiryReminderLevel({
+    expiresAt: directives.registration.repsCertsRecertDueAt
+      ? new Date(directives.registration.repsCertsRecertDueAt)
+      : null,
+    now,
+  });
+  if (recert.level !== "NONE") {
+    items.push({
+      label: "Reps & certs recertification",
+      detail:
+        recert.level === "EXPIRED"
+          ? `OVERDUE by ${Math.abs(recert.daysRemaining ?? 0)} day(s)`
+          : `due in ${recert.daysRemaining} day(s)`,
+    });
+  }
+
+  return items;
+}
+
+/**
+ * §3.3: subcontractor Prompt-Payment deadlines flagged AT_RISK or MISSED. The due date is DERIVED at
+ * runtime from the linked government invoice's paid_at (Decision 10: `subcontractorPaymentDeadline`, the
+ * SAME pure helper §3.4 reuses pointed the other way) — never a stored due date. A payable whose
+ * `government_invoice_id` is unlinked, or whose linked invoice has no `paid_at` yet, has NOT STARTED its
+ * clock (Decision 8) and is correctly excluded here rather than surfaced from a fabricated date.
+ */
+export async function monitorPayablesAtRisk(
+  tx: Tx,
+  args: { orgId: string; now?: Date },
+): Promise<BriefItem[]> {
+  const now = args.now ?? new Date();
+  const rows = await tx
+    .select({
+      id: subcontractorPayables.id,
+      amount: subcontractorPayables.amount,
+      accelerated: contracts.acceleratedPayments,
+      govPaidAt: invoices.paidAt,
+    })
+    .from(subcontractorPayables)
+    .innerJoin(
+      contracts,
+      and(eq(contracts.orgId, subcontractorPayables.orgId), eq(contracts.id, subcontractorPayables.contractId)),
+    )
+    .leftJoin(
+      invoices,
+      and(eq(invoices.orgId, subcontractorPayables.orgId), eq(invoices.id, subcontractorPayables.governmentInvoiceId)),
+    )
+    .where(and(eq(subcontractorPayables.orgId, args.orgId), eq(subcontractorPayables.status, "PENDING")));
+
+  const items: BriefItem[] = [];
+  for (const row of rows) {
+    const deadline = subcontractorPaymentDeadline({
+      upstreamPaymentDate: row.govPaidAt,
+      accelerated: row.accelerated,
+      now,
+    });
+    if (deadline.status === "AT_RISK" || deadline.status === "MISSED") {
+      items.push({
+        label: `Payable ${row.id.slice(0, 8)}`,
+        detail: `$${row.amount ?? "?"} — ${deadline.status.toLowerCase()}, due ${
+          deadline.dueDate?.toISOString() ?? "?"
+        }`,
+      });
+    }
+  }
+  return items;
+}
+
+/**
  * Compose + email the operator's morning brief: triage recommendations awaiting review, outreach
  * awaiting approval, freshly ranked quotes, deadlines, and overdue AR. This is an INTERNAL email to the
  * admin (not a third party), so it is informational — not a Prime-Directive gate.
@@ -1469,6 +1629,8 @@ export async function composeMorningBrief(
 
   const deadlines = await monitorDeadlines(tx, { orgId });
   const arOverdue = await runArFollowups(tx, { orgId });
+  const complianceReminders = await monitorSamRegistration(tx, { orgId });
+  const paymentsAtRisk = await monitorPayablesAtRisk(tx, { orgId });
 
   await deps.sendBriefEmail({
     to,
@@ -1479,6 +1641,8 @@ export async function composeMorningBrief(
     rankedQuotes: rankedRecent.length,
     deadlines,
     arOverdue,
+    complianceReminders,
+    paymentsAtRisk,
     approvalsUrl: `${appBaseUrl()}/admin/approvals`,
   });
 

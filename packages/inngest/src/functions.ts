@@ -11,7 +11,7 @@
  * (HERMES_ACTIVE_ORG_IDS — a deliberate single-tenant simplification; cross-tenant "list all orgs" needs
  * a scheduler read-role and is deferred). Event-triggered functions get orgId from the event payload.
  */
-import { getEngine } from "@hermes/ai";
+import { getEngine, withAiUsageSink } from "@hermes/ai";
 import { withOrg } from "@hermes/db";
 import { sendBriefEmail, sendLossNotificationEmail, sendOutreachEmail } from "@hermes/emails";
 
@@ -26,8 +26,11 @@ import {
   ingestSolicitations,
   ingestUsaspending,
   monitorDeadlines,
+  monitorPayablesAtRisk,
+  monitorSamRegistration,
   onSourcingApproved,
   rankQuotes,
+  recordAiUsageEvent,
   runArFollowups,
   sendLossNotification,
   sendOutreach,
@@ -78,7 +81,12 @@ export const triageFn = inngest.createFunction(
   async ({ event, step }) => {
     const { orgId, solicitationId } = event.data;
     return step.run("triage", () =>
-      withOrg(orgId, (tx) => triage(tx, defaultDeps(), { orgId, solicitationId })),
+      withOrg(orgId, (tx) =>
+        withAiUsageSink(
+          (usage) => recordAiUsageEvent(tx, orgId, usage),
+          () => triage(tx, defaultDeps(), { orgId, solicitationId }),
+        ),
+      ),
     );
   },
 );
@@ -91,7 +99,10 @@ export const onSourcingApprovedFn = inngest.createFunction(
     const { orgId, solicitationId, approvedBy } = event.data;
     const result = await step.run("draft", () =>
       withOrg(orgId, (tx) =>
-        onSourcingApproved(tx, defaultDeps(), { orgId, solicitationId, approvedBy }),
+        withAiUsageSink(
+          (usage) => recordAiUsageEvent(tx, orgId, usage),
+          () => onSourcingApproved(tx, defaultDeps(), { orgId, solicitationId, approvedBy }),
+        ),
       ),
     );
     // Arm the approval gate for each drafted campaign (this event does NOT authorize a send).
@@ -145,7 +156,10 @@ export const draftProposalBidFn = inngest.createFunction(
     const { orgId, solicitationId, quoteId, selectedBy } = event.data;
     return step.run("draft", () =>
       withOrg(orgId, (tx) =>
-        draftProposalBid(tx, defaultDeps(), { orgId, solicitationId, quoteId, selectedBy }),
+        withAiUsageSink(
+          (usage) => recordAiUsageEvent(tx, orgId, usage),
+          () => draftProposalBid(tx, defaultDeps(), { orgId, solicitationId, quoteId, selectedBy }),
+        ),
       ),
     );
   },
@@ -163,7 +177,12 @@ export const draftSubcontractFn = inngest.createFunction(
   async ({ event, step }) => {
     const { orgId, solicitationId, awardedBy } = event.data;
     return step.run("draft", () =>
-      withOrg(orgId, (tx) => draftSubcontract(tx, defaultDeps(), { orgId, solicitationId, awardedBy })),
+      withOrg(orgId, (tx) =>
+        withAiUsageSink(
+          (usage) => recordAiUsageEvent(tx, orgId, usage),
+          () => draftSubcontract(tx, defaultDeps(), { orgId, solicitationId, awardedBy }),
+        ),
+      ),
     );
   },
 );
@@ -180,7 +199,12 @@ export const quoteDetectorFn = inngest.createFunction(
       );
       for (const solicitationId of ids) {
         await step.run(`rank-${solicitationId}`, () =>
-          withOrg(orgId, (tx) => rankQuotes(tx, deps, { orgId, solicitationId })),
+          withOrg(orgId, (tx) =>
+            withAiUsageSink(
+              (usage) => recordAiUsageEvent(tx, orgId, usage),
+              () => rankQuotes(tx, deps, { orgId, solicitationId }),
+            ),
+          ),
         );
       }
     }
@@ -219,6 +243,27 @@ export const arFn = inngest.createFunction(
   async ({ step }) => {
     for (const orgId of resolveActiveOrgIds()) {
       await step.run(`ar-${orgId}`, () => withOrg(orgId, (tx) => runArFollowups(tx, { orgId })));
+    }
+  },
+);
+
+/**
+ * §3.3 — SAM.gov registration expiry (60/30-day cadence) + reps/certs recert reminders, and
+ * subcontractor Prompt-Payment deadlines AT_RISK/MISSED. Same durable-cron shape as deadlineFn/arFn
+ * above (a daily read-only monitor, iterating the active-org set): no send, no state advance — it only
+ * computes the flags that also fold into the morning brief and the admin dashboard (CLAUDE.md §2).
+ */
+export const financeComplianceMonitorFn = inngest.createFunction(
+  { id: "finance-compliance-monitor" },
+  { cron: `${TZ} 0 7 * * *` },
+  async ({ step }) => {
+    for (const orgId of resolveActiveOrgIds()) {
+      await step.run(`finance-compliance-${orgId}`, () =>
+        withOrg(orgId, async (tx) => ({
+          complianceReminders: await monitorSamRegistration(tx, { orgId }),
+          paymentsAtRisk: await monitorPayablesAtRisk(tx, { orgId }),
+        })),
+      );
     }
   },
 );
@@ -291,6 +336,7 @@ export const functions = [
   usaspendingFn,
   deadlineFn,
   arFn,
+  financeComplianceMonitorFn,
   morningBriefFn,
   heartbeatFn,
 ];

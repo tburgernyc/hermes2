@@ -14,6 +14,7 @@ import {
   MODELS,
   UNTRUSTED_RULE,
 } from "./client.js";
+import { reportAiUsage, usageEventFrom } from "./usage.js";
 import {
   ProposalNarrative,
   ProspectScore,
@@ -259,6 +260,7 @@ export function createEngine(client: Anthropic): Engine {
           },
         ],
       });
+      await reportAiUsage(usageEventFrom(MODELS.draft, "exportProposalDoc", resp.usage));
       return { fileId: findGeneratedFileId(resp), raw: resp };
     },
 
@@ -286,6 +288,7 @@ export function createEngine(client: Anthropic): Engine {
           },
         ],
       });
+      await reportAiUsage(usageEventFrom(MODELS.draft, "exportBidDoc", resp.usage));
       return { fileId: findGeneratedFileId(resp), raw: resp };
     },
 

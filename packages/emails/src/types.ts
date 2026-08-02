@@ -39,5 +39,9 @@ export interface MorningBriefInput {
   rankedQuotes: number;
   deadlines: BriefItem[];
   arOverdue: BriefItem[];
+  /** §3.3: SAM.gov registration + reps/certs recert dates inside their 60/30-day reminder window. */
+  complianceReminders: BriefItem[];
+  /** §3.3: subcontractor Prompt-Payment deadlines flagged AT_RISK or MISSED (never a fabricated date). */
+  paymentsAtRisk: BriefItem[];
   approvalsUrl: string;
 }

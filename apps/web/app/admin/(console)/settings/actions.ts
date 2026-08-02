@@ -81,6 +81,8 @@ const formSchema = z.object({
 
   samRegistrationActive: z.string().optional(),
   cageAssigned: z.string().optional(),
+  samRegistrationExpiresAt: z.string().trim().or(z.literal("")).optional(),
+  repsCertsRecertDueAt: z.string().trim().or(z.literal("")).optional(),
 });
 
 function checked(v: string | undefined): boolean {
@@ -161,6 +163,8 @@ function mergeDirectives(current: OrgDirectives, f: z.infer<typeof formSchema>):
     registration: {
       samRegistrationActive: checked(f.samRegistrationActive),
       cageAssigned: checked(f.cageAssigned),
+      samRegistrationExpiresAt: f.samRegistrationExpiresAt ? f.samRegistrationExpiresAt : undefined,
+      repsCertsRecertDueAt: f.repsCertsRecertDueAt ? f.repsCertsRecertDueAt : undefined,
     },
   };
   return next;

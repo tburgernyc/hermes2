@@ -11,6 +11,7 @@ import {
   arFn,
   deadlineFn,
   draftProposalBidFn,
+  draftRfiCapabilityStatementFn,
   draftSubcontractFn,
   functions,
   heartbeatFn,
@@ -24,22 +25,24 @@ import {
 } from "../src/functions.js";
 
 describe("durable function registry", () => {
-  it("registers all twelve functions, including the approval gate", () => {
+  it("registers all thirteen functions, including the approval gate", () => {
     expect(functions).toContain(outreachGateFn);
-    expect(functions).toHaveLength(12);
+    expect(functions).toHaveLength(13);
     // No accidental duplicates — every served function is a distinct object.
     expect(new Set(functions).size).toBe(functions.length);
   });
 
   it("keeps the gate distinct from every autonomous / event-triggered function", () => {
-    // draftProposalBidFn / draftSubcontractFn are event-triggered (they react to a human-gate event, like
-    // triageFn reacts to ingest) — neither is the outreach waitForEvent gate, and neither sends or submits.
+    // draftProposalBidFn / draftSubcontractFn / draftRfiCapabilityStatementFn are event-triggered (they
+    // react to a human-gate event, like triageFn reacts to ingest) — none is the outreach waitForEvent
+    // gate, and none sends or submits.
     const nonGate = [
       samScan,
       triageFn,
       onSourcingApprovedFn,
       draftProposalBidFn,
       draftSubcontractFn,
+      draftRfiCapabilityStatementFn,
       quoteDetectorFn,
       usaspendingFn,
       deadlineFn,

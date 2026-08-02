@@ -7,7 +7,9 @@ import styles from "./console-shell.module.css";
 const ADMIN_NAV = [
   { href: "/admin", label: "Home" },
   { href: "/admin/solicitations", label: "Solicitations" },
+  { href: "/admin/rfi", label: "Sources sought" },
   { href: "/admin/prospects", label: "Prospects" },
+  { href: "/admin/bench", label: "Bench" },
   { href: "/admin/approvals", label: "Approvals" },
   { href: "/admin/vendors", label: "Vendors" },
   { href: "/admin/inquiries", label: "Inquiries" },

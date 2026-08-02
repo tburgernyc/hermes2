@@ -9,5 +9,6 @@ export * from "./compliance.js";
 export * from "./pricing.js";
 export * from "./bid.js";
 export * from "./subcontract.js";
+export * from "./capability-statement.js";
 export * from "./engine.js";
 export * from "./embed.js";

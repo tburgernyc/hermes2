@@ -15,6 +15,8 @@ import {
   UNTRUSTED_RULE,
 } from "./client.js";
 import {
+  CapabilityStatementDraft,
+  ComplianceMatrix,
   ProposalNarrative,
   ProspectScore,
   QuoteRanking,
@@ -116,6 +118,23 @@ export interface Engine {
     flowDown: FlowDownInput;
     provisionalRatesMode?: boolean;
   }): Promise<SubcontractPackage>;
+  /**
+   * §3.8.1: draft a capability-statement RESPONSE to a sources-sought/RFI notice — prose only, no
+   * pricing, no commitments. Reuses the draftSOW-style pattern (a single structured Sonnet call). Lands
+   * as a reviewable draft; a human records RESPONSE_SUBMITTED separately (CLAUDE.md §2).
+   */
+  draftCapabilityStatement(input: {
+    title: string;
+    scopeText: string;
+    orgCapabilitiesSummary?: string;
+  }): Promise<CapabilityStatementDraft>;
+  /**
+   * §3.8.3: extract Section L (instructions to offerors) / Section M (evaluation criteria) requirements
+   * from a solicitation's raw `scopeText` into a structured compliance matrix. INFORMATIVE/STRUCTURING
+   * output only — it never gates or blocks anything; it makes the EXISTING human compliance-review gate
+   * (§3.2) more effective by giving it something concrete to check the drafted proposal against.
+   */
+  extractComplianceMatrix(input: { title: string; scopeText: string }): Promise<ComplianceMatrix>;
 }
 
 export function createEngine(client: Anthropic): Engine {
@@ -331,6 +350,59 @@ export function createEngine(client: Anthropic): Engine {
         provisionalRatesMode: input.provisionalRatesMode,
       });
     },
+
+    /* ---------- §3.8.1 capability-statement draft (Sonnet, prose only) ---------- */
+    async draftCapabilityStatement(input) {
+      const user = [
+        `Title: ${input.title}`,
+        "Sources-sought/RFI notice text follows:",
+        fenceUntrusted("sam.gov_notice", input.scopeText),
+        input.orgCapabilitiesSummary
+          ? `Our firm's general capabilities (use as background, do not invent beyond this):\n${input.orgCapabilitiesSummary}`
+          : "No firm capability background was supplied — describe capabilities generically without inventing specific past performance.",
+        "Draft a CapabilityStatementDraft: who we are and why we are capable of this work. No pricing, " +
+          "no commitments, no fabricated past performance or certifications.",
+      ].join("\n\n");
+      return callStructured(client, {
+        schema: CapabilityStatementDraft,
+        schemaName: "CapabilityStatementDraft",
+        system: cachedSystem(
+          "Draft capability-statement RESPONSES to federal sources-sought/RFI notices: prose describing " +
+            "the firm's organization, relevant experience, and technical capabilities. Never invent facts, " +
+            "certifications, or past performance; never include pricing or assert a commitment to bid. " +
+            UNTRUSTED_RULE,
+        ),
+        user,
+        model: MODELS.triage,
+      });
+    },
+
+    /* ---------- §3.8.3 Section L/M compliance-matrix extraction (Sonnet) ---------- */
+    async extractComplianceMatrix(input) {
+      const user = [
+        `Title: ${input.title}`,
+        "Solicitation scope/text follows:",
+        fenceUntrusted("sam.gov_solicitation", input.scopeText),
+        "Extract every Section L (Instructions, Conditions, and Notices to Offerors) requirement and " +
+          "every Section M (Evaluation Factors for Award) criterion you can identify into a structured " +
+          "ComplianceMatrix. If the text has no clearly labeled Section L or M, set the corresponding " +
+          "*Found flag false and extract whatever proposal-submission or evaluation requirements you can " +
+          "still identify, categorized OTHER. Do not invent requirements not present in the text.",
+      ].join("\n\n");
+      return callStructured(client, {
+        schema: ComplianceMatrix,
+        schemaName: "ComplianceMatrix",
+        system: cachedSystem(
+          "Parse federal solicitation Section L (instructions to offerors) and Section M (evaluation " +
+            "criteria) into a structured checklist. This is INFORMATIVE extraction only — you never decide " +
+            "compliance, you only report what the solicitation text says. " +
+            UNTRUSTED_RULE,
+        ),
+        user,
+        model: MODELS.triage,
+        maxTokens: 3072,
+      });
+    },
   };
 }
 
@@ -394,3 +466,7 @@ export const draftBid: Engine["draftBid"] = (input) => getEngine().draftBid(inpu
 export const exportBidDoc: Engine["exportBidDoc"] = (input) => getEngine().exportBidDoc(input);
 export const draftSubcontractAgreement: Engine["draftSubcontractAgreement"] = (input) =>
   getEngine().draftSubcontractAgreement(input);
+export const draftCapabilityStatement: Engine["draftCapabilityStatement"] = (input) =>
+  getEngine().draftCapabilityStatement(input);
+export const extractComplianceMatrix: Engine["extractComplianceMatrix"] = (input) =>
+  getEngine().extractComplianceMatrix(input);

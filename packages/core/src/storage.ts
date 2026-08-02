@@ -141,3 +141,17 @@ export function contractDocumentKey(
 ): string {
   return `orgs/${orgId}/contracts/${contractId}/documents/${documentId}.${ext}`;
 }
+
+/**
+ * Org + solicitation-scoped object key for a SYSTEM-generated solicitation document (§3.8.1 — the
+ * AI-drafted CAPABILITY_STATEMENT response to a sources-sought/RFI notice). Keyed by documentId (not a
+ * fixed filename) so a redraft never overwrites the prior one, mirroring contractDocumentKey.
+ */
+export function solicitationDocumentKey(
+  orgId: string,
+  solicitationId: string,
+  documentId: string,
+  ext: string,
+): string {
+  return `orgs/${orgId}/solicitations/${solicitationId}/documents/${documentId}.${ext}`;
+}

@@ -18,16 +18,21 @@ import { sendBriefEmail, sendLossNotificationEmail, sendOutreachEmail } from "@h
 import { inngest } from "./client.js";
 import { safeFetchDocument } from "./safety.js";
 import {
+  closeRfiNoAction,
   composeMorningBrief,
+  convertRfiToPursuit,
   draftProposalBid,
+  draftRfiCapabilityStatement,
   draftSubcontract,
   expireOutreach,
+  extractLmComplianceMatrix,
   findUnrankedSolicitationIds,
   ingestSolicitations,
   ingestUsaspending,
   monitorDeadlines,
   onSourcingApproved,
   rankQuotes,
+  recordRfiResponseSubmitted,
   runArFollowups,
   sendLossNotification,
   sendOutreach,
@@ -62,6 +67,10 @@ export const samScan = inngest.createFunction(
         withOrg(orgId, (tx) => ingestSolicitations(tx, deps, { orgId })),
       );
       for (const s of ingested) {
+        // §3.8.1: an RFI-track row (rfiTrack=true) must NEVER enter the AI-triage / bid-award spine — it
+        // stays PENDING_TRIAGE forever on the `status` axis and is worked entirely through rfi_track_status
+        // instead (the /admin/rfi surface). Only non-RFI notices get triaged.
+        if (s.rfiTrack) continue;
         await step.sendEvent(`ingested-${s.id}`, {
           name: "hermes/solicitation.ingested",
           data: { orgId, solicitationId: s.id },
@@ -168,6 +177,22 @@ export const draftSubcontractFn = inngest.createFunction(
   },
 );
 
+/* ============== §3.8.1 POST-HUMAN-REQUEST — draft an RFI capability-statement response (no send) ====== */
+// Triggered by hermes/rfi.capability-statement.requested, emitted ONLY by an admin clicking "Draft
+// capability statement" on a RECEIVED sources-sought/RFI-track solicitation (/admin/rfi). Event-triggered
+// (not a waitForEvent gate) — the human already gated by clicking. Drafts prose only and stores it as a
+// CAPABILITY_STATEMENT document for review; it never submits/sends anything (CLAUDE.md §2).
+export const draftRfiCapabilityStatementFn = inngest.createFunction(
+  { id: "draft-rfi-capability-statement", retries: 2 },
+  { event: "hermes/rfi.capability-statement.requested" },
+  async ({ event, step }) => {
+    const { orgId, solicitationId } = event.data;
+    return step.run("draft", () =>
+      withOrg(orgId, (tx) => draftRfiCapabilityStatement(tx, defaultDeps(), { orgId, solicitationId })),
+    );
+  },
+);
+
 /* ============================ AUTONOMOUS — Quote detector (every 15 min) =================== */
 export const quoteDetectorFn = inngest.createFunction(
   { id: "quote-detector", retries: 2 },
@@ -257,6 +282,56 @@ export async function sendApprovedLossNotification(
   );
 }
 
+/* ===== §3.8.1 RFI-track human recording actions (pure DB, not durable Inngest functions) ===== */
+// Thin, ready-wired calls for the /admin/rfi Server Actions (apps/web). None of these call the model or
+// send anything outbound — recordRfiResponseSubmitted/closeRfiNoAction/convertRfiToPursuit are pure human
+// decisions recorded directly (mirrors sendApprovedLossNotification's "no durability machinery needed for
+// a single admin click" reasoning). Kept in @hermes/inngest/logic.ts (not apps/web) so they get the same
+// DB-backed test coverage as every other RFI-track transition.
+export async function recordApprovedRfiResponseSubmitted(
+  orgId: string,
+  solicitationId: string,
+  recordedBy: string,
+  recordedByEmail: string | null,
+): Promise<{ status: "RECORDED" | "REFUSED" }> {
+  return withOrg(orgId, (tx) =>
+    recordRfiResponseSubmitted(tx, { orgId, solicitationId, recordedBy, recordedByEmail }),
+  );
+}
+
+export async function closeApprovedRfiNoAction(
+  orgId: string,
+  solicitationId: string,
+  closedBy: string,
+  closedByEmail: string | null,
+): Promise<{ status: "CLOSED" | "REFUSED" }> {
+  return withOrg(orgId, (tx) => closeRfiNoAction(tx, { orgId, solicitationId, closedBy, closedByEmail }));
+}
+
+export async function convertApprovedRfiToPursuit(
+  orgId: string,
+  solicitationId: string,
+  convertedBy: string,
+  convertedByEmail: string | null,
+): Promise<{ status: "CONVERTED"; newSolicitationId: string } | { status: "REFUSED" }> {
+  return withOrg(orgId, (tx) =>
+    convertRfiToPursuit(tx, { orgId, solicitationId, convertedBy, convertedByEmail }),
+  );
+}
+
+/* ===== §3.8.3 Section L/M compliance-matrix re-extraction (pure AI read/store, not a durable fn) ===== */
+// A thin, ready-wired call for the proposal review Server Action (apps/web). Informative/structuring
+// output only (CLAUDE.md §2/§6) — it never gates or blocks anything, so a single direct call (no
+// retry/durability machinery) is appropriate, mirroring the RFI actions above. A transient failure is the
+// caller's problem to surface; extractLmComplianceMatrix itself already fails closed (never throws) on an
+// unvalidated model output.
+export async function reextractSolicitationComplianceMatrix(
+  orgId: string,
+  solicitationId: string,
+): Promise<{ status: "EXTRACTED" | "NOT_FOUND" | "FAILED_CLOSED" }> {
+  return withOrg(orgId, (tx) => extractLmComplianceMatrix(tx, defaultDeps(), { orgId, solicitationId }));
+}
+
 /* ============================ External dead-man's-switch heartbeat ========================= */
 // An app that is down cannot alert on itself (CLAUDE.md §7). Ping an EXTERNAL monitor (healthchecks.io
 // style) every ~10 min; the monitor alerts the operator if pings stop. HEARTBEAT_URL is operator-set, so
@@ -287,6 +362,7 @@ export const functions = [
   outreachGateFn,
   draftProposalBidFn,
   draftSubcontractFn,
+  draftRfiCapabilityStatementFn,
   quoteDetectorFn,
   usaspendingFn,
   deadlineFn,

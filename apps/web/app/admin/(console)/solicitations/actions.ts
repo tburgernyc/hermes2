@@ -2,7 +2,7 @@
 
 /**
  * Solicitation + quote decision actions for the operator console. Every action is a HUMAN decision
- * behind requireAdmin (role + satisfied TOTP), runs inside an org-scoped transaction, and appends an
+ * behind requireCaptureAccess (role + satisfied TOTP), runs inside an org-scoped transaction, and appends an
  * ADMIN audit row. None of these send anything outbound directly to a third party — they record internal
  * triage/selection/outcome decisions (CLAUDE.md §2: the model never advances state; a human does).
  * Approving SOURCING (which arms the outreach workflow + emits a human-gate event) stays in
@@ -32,7 +32,7 @@ import {
 import { inngest, writeAudit } from "@hermes/inngest";
 
 import { OUTCOME_RECORDABLE_STATUSES } from "@/lib/admin-board";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OUTCOME_VALUES = ["AWARDED", "REJECTED", "CLOSED"] as const;
@@ -66,7 +66,7 @@ function readText(formData: FormData, key: string, max = MAX_TEXT): string | nul
  * the sourcing_gate's guarded set, so no approver column is required.
  */
 export async function markNoGo(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const solicitationId = readId(formData, "solicitationId");
@@ -102,7 +102,7 @@ export async function markNoGo(formData: FormData): Promise<void> {
 
 /** Shortlist a submitted quote for closer review (SUBMITTED/UNDER_REVIEW → SHORTLISTED). */
 export async function shortlistQuote(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const quoteId = readId(formData, "quoteId");
@@ -143,7 +143,7 @@ export async function shortlistQuote(formData: FormData): Promise<void> {
  * solicitation — the choice is single and explicit.
  */
 export async function selectQuote(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const quoteId = readId(formData, "quoteId");
@@ -312,7 +312,7 @@ export async function selectQuote(formData: FormData): Promise<void> {
  * anything and never starts e-signature on its own (CLAUDE.md §2).
  */
 export async function recordOutcome(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const solicitationId = readId(formData, "solicitationId");

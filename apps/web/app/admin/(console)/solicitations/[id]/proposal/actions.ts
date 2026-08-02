@@ -3,7 +3,7 @@
 /**
  * Proposal review gates for the operator console. The drafting workflow (Inngest) produces a DRAFT
  * proposal; a HUMAN walks it through DRAFT → COUNSEL_REVIEW → READY_TO_SUBMIT → SUBMITTED here. Every
- * action is behind requireAdmin (role + satisfied TOTP), runs in an org-scoped transaction, appends an
+ * action is behind requireCaptureAccess (role + satisfied TOTP), runs in an org-scoped transaction, appends an
  * ADMIN audit row, and emits NO events and performs NO outbound work (CLAUDE.md §2). The final submit is
  * STRUCTURALLY blocked by readyForLiveSubmission for as long as the firm runs on the provisional baseline
  * (no counsel-confirmed thresholds, no actual rates, no SAM/CAGE) — so no real bid can leave the system.
@@ -23,7 +23,7 @@ import {
 import { readyForLiveSubmission } from "@hermes/ai";
 import { writeAudit } from "@hermes/inngest";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -39,7 +39,7 @@ function revalidateProposal(solicitationId: string | null): void {
 
 /** Record that counsel has reviewed the draft (DRAFT → COUNSEL_REVIEW). A human decision; no outbound. */
 export async function counselReviewProposal(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const proposalId = readId(formData, "proposalId");
@@ -71,7 +71,7 @@ export async function counselReviewProposal(formData: FormData): Promise<void> {
 
 /** Mark a counsel-reviewed proposal ready (COUNSEL_REVIEW → READY_TO_SUBMIT). No outbound. */
 export async function markProposalReady(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const proposalId = readId(formData, "proposalId");
@@ -117,7 +117,7 @@ export async function markProposalReady(formData: FormData): Promise<void> {
  * proposals CHECKs are the final backstop.
  */
 export async function submitProposal(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const proposalId = readId(formData, "proposalId");

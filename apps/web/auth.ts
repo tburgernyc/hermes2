@@ -68,6 +68,9 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
           role: toRole(user.role),
           // Server-resolved from the DB link (users.vendor_id) — never client-supplied.
           vendorId: user.vendorId,
+          // §3.6: server-resolved from users.admin_role — never client-supplied. Always null for a
+          // VENDOR-role user (the DB CHECK guarantees it).
+          adminRole: user.adminRole,
           totpEnrolled: user.totpEnrolledAt !== null,
         };
       },
@@ -84,6 +87,7 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
         claims.orgId = user.orgId;
         claims.role = user.role;
         claims.vendorId = user.vendorId ?? null; // server-resolved link; null until an admin binds it
+        claims.adminRole = user.adminRole ?? null; // §3.6 — server-resolved; null for VENDOR sessions
         claims.totpEnrolled = Boolean(user.totpEnrolled);
         claims.totpVerified = false;
       }
@@ -108,6 +112,10 @@ export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
           // Re-sync the vendor link too, so an admin-established link can propagate to a live session
           // (a triggered session refresh) without forcing a full re-login.
           claims.vendorId = u?.vendorId ?? null;
+          // §3.6: re-sync admin_role on the same trigger, so a role change an admin makes on
+          // /admin/users can reach the AFFECTED admin's own live session via this refresh path too
+          // (otherwise it only takes effect on their next full login).
+          claims.adminRole = u?.adminRole ?? null;
         }
       }
 

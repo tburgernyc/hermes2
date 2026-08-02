@@ -17,3 +17,13 @@ export const E2E_VENDOR_EMAIL = "vendor@e2e.test";
 export const E2E_VENDOR_PASSWORD = "vendor-Password-123!";
 /** A valid base32 TOTP secret (the canonical RFC test vector). */
 export const E2E_ADMIN_TOTP_SECRET = "JBSWY3DPEHPK3PXP";
+
+/**
+ * §3.6 granular-role fixtures — a CAPTURE-level admin, used by admin-rbac.spec.ts to prove the
+ * /admin/settings (and admin-role-assignment) denial is server-side, not a hidden nav link. Distinct
+ * password + TOTP secret (a second valid RFC base32 vector) so its own step-up is independent of the FULL
+ * admin fixture above.
+ */
+export const E2E_CAPTURE_ADMIN_EMAIL = "capture-admin@e2e.test";
+export const E2E_CAPTURE_ADMIN_PASSWORD = "capture-Password-123!";
+export const E2E_CAPTURE_ADMIN_TOTP_SECRET = "JBSWY3DPEHPK3PXQ";

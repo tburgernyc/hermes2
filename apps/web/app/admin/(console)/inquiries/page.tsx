@@ -1,6 +1,6 @@
 /**
  * /admin/inquiries — the public contact-form inbox. Read surface + one human "mark reviewed" decision.
- * Rendering advances nothing and sends nothing (CLAUDE.md §2); requireAdmin guards the page. Untrusted
+ * Rendering advances nothing and sends nothing (CLAUDE.md §2); requireCaptureAccess guards the page. Untrusted
  * visitor text (name / company / message) is rendered as DATA via JSX autoescape, never as markup.
  */
 import type { JSX } from "react";
@@ -10,14 +10,14 @@ import { contactInquiries, desc, eq, withOrg } from "@hermes/db";
 import { Badge, Card, PageHeader } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 import { markInquiryReviewed } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function InquiriesPage(): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
 
   const inquiries = await withOrg(orgId, (tx) =>

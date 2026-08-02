@@ -10,14 +10,14 @@ import type { JSX } from "react";
 import { eq, orgs, parseDirectives, withOrg } from "@hermes/db";
 
 import { PageHeader } from "@/components/ui/console";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireFullAdmin } from "@/lib/auth-guard";
 
 import { SettingsForm } from "./settings-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage(): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireFullAdmin();
   const orgId = session.user.orgId;
 
   const org = await withOrg(orgId, async (tx) => {

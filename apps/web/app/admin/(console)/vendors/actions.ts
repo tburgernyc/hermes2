@@ -3,7 +3,7 @@
 /**
  * Admin vendor-vetting actions — the §7 trust boundary for the users↔vendors linkage. The link from a
  * logged-in user to a vetted vendor can be established ONLY here: each action re-checks the admin session
- * (requireAdmin → role + satisfied TOTP), runs inside an org-scoped transaction (hermes_app RLS), and
+ * (requireCaptureAccess → role + satisfied TOTP), runs inside an org-scoped transaction (hermes_app RLS), and
  * writes an ADMIN audit row. A self-registered vendor user can never self-assert a vendor link — it must
  * be promoted/vetted/linked by an admin (mirrors the way a vendor row can only become VETTED with a
  * recorded vetter). This is the minimal action surface; the full vetting-queue UI is Phase 6.
@@ -25,7 +25,7 @@ import {
 } from "@hermes/db";
 import { writeAudit } from "@hermes/inngest";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -41,7 +41,7 @@ function readId(formData: FormData, key: string): string {
  * the status flip, so we do it here in the same transaction.
  */
 export async function promoteProspectToVendor(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const prospectId = readId(formData, "prospectId");
@@ -103,7 +103,7 @@ export async function promoteProspectToVendor(formData: FormData): Promise<void>
 
 /** Mark a vendor VETTED: the DB CHECK requires a recorded vetter + timestamp, which we set here. */
 export async function vetVendor(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const vendorId = readId(formData, "vendorId");
@@ -144,7 +144,7 @@ export async function vetVendor(formData: FormData): Promise<void> {
  * vendorId/userId come only from the admin form, re-validated as UUIDs and re-scoped to the session org.
  */
 export async function linkVendorUser(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const adminId = session.user.id;
   const targetUserId = readId(formData, "userId");
@@ -217,7 +217,7 @@ export async function inviteVendorUser(
 ): Promise<InviteState> {
   let session: Session;
   try {
-    session = await requireAdmin();
+    session = await requireCaptureAccess();
   } catch {
     return { ok: false, error: "Your session is no longer authorized. Sign in again." };
   }

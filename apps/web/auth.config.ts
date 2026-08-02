@@ -1,5 +1,6 @@
 import type { NextAuthConfig } from "next-auth";
 import type { Role } from "@hermes/core";
+import type { AdminRole } from "@/lib/admin-domains";
 
 /**
  * The custom claims we put on the JWT. Used as an explicit view of `token` in both callbacks — the
@@ -12,6 +13,9 @@ export interface TokenClaims {
   role?: Role;
   /** Server-resolved link to a vetted vendor (vendor portal). Set ONLY from the DB, never the client. */
   vendorId?: string | null;
+  /** §3.6 granular admin access level. Server-resolved from `users.admin_role`, never the client. Always
+   *  null for a VENDOR-role session. */
+  adminRole?: AdminRole | null;
   totpVerified?: boolean;
   totpEnrolled?: boolean;
 }
@@ -35,6 +39,7 @@ export default {
         session.user.orgId = claims.orgId ?? "";
         session.user.role = claims.role ?? "vendor";
         session.user.vendorId = claims.vendorId ?? null;
+        session.user.adminRole = claims.adminRole ?? null;
         session.user.totpVerified = Boolean(claims.totpVerified);
         session.user.totpEnrolled = Boolean(claims.totpEnrolled);
       }

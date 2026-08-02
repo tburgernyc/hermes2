@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Prospect decision actions: manual add + qualify. Admin-only (requireAdmin), org-scoped, audited.
+ * Prospect decision actions: manual add + qualify. Admin-only (requireCaptureAccess), org-scoped, audited.
  * A manually-added prospect is a TRUSTED admin write (prospect_source = MANUAL) — distinct from the
  * low-trust tokenized public submission path, which can only ever write a prospect-scoped row via the
  * hermes_token role. Marking a prospect QUALIFIED feeds the vendor promotion flow (/admin/vendors).
@@ -11,7 +11,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray, vendorProspects, withOrg } from "@hermes/db";
 import { writeAudit } from "@hermes/inngest";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 import { QUALIFIABLE_PROSPECT_STATUSES } from "@/lib/admin-board";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -40,7 +40,7 @@ function parseNaics(raw: string): string[] {
  * length-capped. The prospect starts NEW so it flows through the normal screen → qualify → promote path.
  */
 export async function addProspect(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
 
@@ -92,7 +92,7 @@ export async function addProspect(formData: FormData): Promise<void> {
 
 /** Mark a prospect QUALIFIED so an admin can promote it to a vetted vendor (/admin/vendors). */
 export async function markProspectQualified(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const prospectId = readId(formData, "prospectId");

@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Contact-inquiry review action. Admin-only (requireAdmin), org-scoped, audited. Flipping NEW → REVIEWED
+ * Contact-inquiry review action. Admin-only (requireCaptureAccess), org-scoped, audited. Flipping NEW → REVIEWED
  * is a human bookkeeping step — it sends nothing and advances no firm workflow (CLAUDE.md §2). The
  * conditional WHERE status='NEW' makes a double-submit a no-op.
  */
@@ -10,12 +10,12 @@ import { revalidatePath } from "next/cache";
 import { and, contactInquiries, eq, withOrg } from "@hermes/db";
 import { writeAudit } from "@hermes/inngest";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function markInquiryReviewed(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const id = String(formData.get("inquiryId") ?? "");
   if (!UUID_RE.test(id)) throw new Error("Invalid inquiryId");

@@ -1,7 +1,7 @@
 /**
  * /admin/prospects — the subcontractor prospect list, with a manual-add form and the qualify decision.
  * "Approve outreach" (per drafted campaign) lives on /admin/approvals; this page deep-links to it and
- * shows the pending count. Rendering advances nothing (CLAUDE.md §2). requireAdmin guards the page.
+ * shows the pending count. Rendering advances nothing (CLAUDE.md §2). requireCaptureAccess guards the page.
  */
 import Link from "next/link";
 import type { JSX } from "react";
@@ -13,14 +13,14 @@ import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { humanizeStatus, isQualifiableProspectStatus } from "@/lib/admin-board";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 import { addProspect, markProspectQualified } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProspectsPage(): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
 
   const { prospects, pendingOutreach } = await withOrg(orgId, async (tx) => {

@@ -21,7 +21,7 @@ import {
 } from "@hermes/db";
 import { writeAudit } from "@hermes/inngest";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireFullAdmin } from "@/lib/auth-guard";
 
 export interface SettingsState {
   ok: boolean;
@@ -169,7 +169,7 @@ function mergeDirectives(current: OrgDirectives, f: z.infer<typeof formSchema>):
 export async function updateSettings(_prev: SettingsState, formData: FormData): Promise<SettingsState> {
   let session;
   try {
-    session = await requireAdmin();
+    session = await requireFullAdmin();
   } catch {
     return { ok: false, error: "Your session is no longer authorized. Sign in again." };
   }

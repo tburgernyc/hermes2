@@ -1,7 +1,7 @@
 /**
  * /admin/vendors — the vendor-vetting surface. Lets an admin promote a qualified prospect to a vendor,
  * vet a vendor, and bind a VENDOR-role user to a vetted vendor. Establishing the user↔vendor link is an
- * admin-only action (CLAUDE.md §7) — never self-asserted. Middleware gates /admin; requireAdmin is
+ * admin-only action (CLAUDE.md §7) — never self-asserted. Middleware gates /admin; requireCaptureAccess is
  * defense in depth.
  */
 import type { JSX } from "react";
@@ -11,7 +11,7 @@ import { and, desc, eq, isNull, users, vendorProspects, vendors, withOrg } from 
 import { Card, PageHeader, Section, Select } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 import { linkVendorUser, promoteProspectToVendor, vetVendor } from "./actions";
 import { InviteForm } from "./invite-form";
@@ -19,7 +19,7 @@ import { InviteForm } from "./invite-form";
 export const dynamic = "force-dynamic";
 
 export default async function VendorsPage(): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
 
   const { qualifiedProspects, pendingVendors, vettedVendors, unlinkedUsers } = await withOrg(

@@ -23,6 +23,7 @@ import {
 
 import { Card, PageHeader, Section, Stat } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
+import { Alert } from "@/components/ui/Alert";
 import { requireAdmin } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
@@ -37,9 +38,14 @@ const LIVE_STATUSES = [
   "PROPOSAL_DRAFT",
 ] as const;
 
-export default async function AdminHome(): Promise<JSX.Element> {
+export default async function AdminHome({
+  searchParams,
+}: {
+  searchParams: Promise<{ denied?: string }>;
+}): Promise<JSX.Element> {
   const session = await requireAdmin();
   const orgId = session.user.orgId;
+  const { denied } = await searchParams;
   const now = new Date();
   const horizon = new Date(now.getTime() + DEADLINE_HORIZON_MS);
 
@@ -110,6 +116,13 @@ export default async function AdminHome(): Promise<JSX.Element> {
         title="Admin Console"
         lede={`Morning brief for ${session.user.email}. Nothing here is sent or advanced without your explicit approval.`}
       />
+
+      {denied ? (
+        <Alert variant="error" testId="admin-denied-banner">
+          Your admin role ({session.user.adminRole ?? "none"}) does not cover {denied}. That page was
+          refused server-side, not just hidden from the menu.
+        </Alert>
+      ) : null}
 
       <div className={c.statGrid}>
         <Stat label="Awaiting sourcing decision" value={brief.triaged.length} />

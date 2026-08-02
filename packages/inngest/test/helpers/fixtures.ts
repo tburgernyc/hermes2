@@ -6,11 +6,13 @@
 import {
   orgs,
   outreachCampaigns,
+  proposals,
   solicitations,
   users,
   vendorProspects,
   vendorQuoteLineItems,
   vendorQuotes,
+  vendors,
   type OrgDirectives,
   type Tx,
 } from "@hermes/db";
@@ -78,9 +80,13 @@ export async function insertSolicitation(
     contractType?: string | null;
     naicsCode?: string | null;
     isDefense?: boolean;
+    /** §3.1 outcome gate: AWARDED/REJECTED/CLOSED requires a recorded human + timestamp. */
+    outcomeRecordedBy?: string | null;
+    awardDate?: Date | null;
   } = {},
 ): Promise<string> {
   const approvedBy = opts.sourcingApprovedBy ?? null;
+  const outcomeRecordedBy = opts.outcomeRecordedBy ?? null;
   // The is_services_provenance CHECK requires a source whenever is_services is non-null.
   const isServices = opts.isServices === undefined ? null : opts.isServices;
   const [row] = await tx
@@ -100,6 +106,9 @@ export async function insertSolicitation(
       contractType: (opts.contractType ?? null) as never,
       naicsCode: opts.naicsCode ?? null,
       isDefense: opts.isDefense ?? false,
+      outcomeRecordedBy,
+      outcomeRecordedAt: outcomeRecordedBy ? new Date() : null,
+      awardDate: opts.awardDate ?? null,
     })
     .returning({ id: solicitations.id });
   return row!.id;
@@ -185,6 +194,90 @@ export async function insertQuote(
       notes: opts.notes ?? null,
     })
     .returning({ id: vendorQuotes.id });
+  return row!.id;
+}
+
+/** A vetted `vendors` row (distinct from a mere `vendor_prospects` row — required for a quote to cascade
+ *  into a `contracts` row, whose awarded_vendor_id FK requires a vetted vendor). */
+export async function insertVendor(
+  tx: Tx,
+  orgId: string,
+  opts: { companyName?: string; smallBusinessStatus?: string; vettedBy?: string } = {},
+): Promise<string> {
+  // vendors_vetted_requires_vetter CHECK: a VETTED vendor must carry a recorded vetter + timestamp.
+  const vettedBy = opts.vettedBy ?? (await insertUser(tx, orgId, { role: "ADMIN" }));
+  const [row] = await tx
+    .insert(vendors)
+    .values({
+      orgId,
+      companyName: opts.companyName ?? `Vendor ${uniq()}`,
+      contactEmail: `vendor-${uniq()}@example.test`,
+      smallBusinessStatus: (opts.smallBusinessStatus ?? "SMALL") as never,
+      status: "VETTED",
+      vettedBy,
+      vettedAt: new Date(),
+    })
+    .returning({ id: vendors.id });
+  return row!.id;
+}
+
+/** A quote whose party is a VETTED VENDOR (vendorId set, prospectId null) — the authenticated-submit shape
+ *  (Phase-6 PR K), and the only shape draftSubcontract can cascade into a `contracts` row. */
+export async function insertVendorQuote(
+  tx: Tx,
+  orgId: string,
+  opts: {
+    solicitationId: string;
+    vendorId: string;
+    status?: string;
+    totalPrice?: string;
+    notes?: string;
+  },
+): Promise<string> {
+  const [row] = await tx
+    .insert(vendorQuotes)
+    .values({
+      orgId,
+      solicitationId: opts.solicitationId,
+      vendorId: opts.vendorId,
+      status: (opts.status ?? "SUBMITTED") as never,
+      totalPrice: opts.totalPrice ?? "100000",
+      notes: opts.notes ?? null,
+    })
+    .returning({ id: vendorQuotes.id });
+  return row!.id;
+}
+
+/** A `proposals` row (the pre-award bid draft). draftSubcontract requires one at status WON with a
+ *  selectedQuoteId before it will cascade a contract. */
+export async function insertProposal(
+  tx: Tx,
+  orgId: string,
+  opts: {
+    solicitationId: string;
+    selectedQuoteId?: string | null;
+    contractType?: string;
+    status?: string;
+    submittedBy?: string | null;
+    counselReviewedBy?: string | null;
+  },
+): Promise<string> {
+  const submittedBy = opts.submittedBy ?? null;
+  const counselReviewedBy = opts.counselReviewedBy ?? null;
+  const [row] = await tx
+    .insert(proposals)
+    .values({
+      orgId,
+      solicitationId: opts.solicitationId,
+      selectedQuoteId: opts.selectedQuoteId ?? null,
+      contractType: (opts.contractType ?? "FFP") as never,
+      status: (opts.status ?? "DRAFT") as never,
+      submittedBy,
+      submittedAt: submittedBy ? new Date() : null,
+      counselReviewedBy,
+      counselReviewedAt: counselReviewedBy ? new Date() : null,
+    })
+    .returning({ id: proposals.id });
   return row!.id;
 }
 

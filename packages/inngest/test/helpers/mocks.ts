@@ -5,8 +5,14 @@
  */
 import { vi, type Mock } from "vitest";
 
-import { assembleBidPackage } from "@hermes/ai";
-import type { ProposalNarrative, ProspectScore, SowBrief, TriageVerdict } from "@hermes/ai";
+import { assembleBidPackage, assembleSubcontractPackage } from "@hermes/ai";
+import type {
+  ProposalNarrative,
+  ProspectScore,
+  SowBrief,
+  SubcontractNarrative,
+  TriageVerdict,
+} from "@hermes/ai";
 
 import type { LogicDeps } from "../../src/logic.js";
 
@@ -44,17 +50,38 @@ const DEFAULT_NARRATIVE: ProposalNarrative = {
   assumptions: [],
 };
 
+/** A canned (prose-only) subcontract narrative; the real engine assembles the deterministic FAR flow-down
+ *  list + milestone schedule around it. */
+const DEFAULT_SUBCONTRACT_NARRATIVE: SubcontractNarrative = {
+  scopeOfWork: "Provide tiered IT support per the awarded solicitation scope.",
+  periodOfPerformanceSummary: "Twelve months from award; paid on milestone completion.",
+  paymentScheduleSummary: "Paid on completion of each milestone below.",
+  protectiveTerms: [
+    { term: "Indemnification", body: "Each party indemnifies the other for its own negligent acts." },
+    { term: "Insurance Requirements", body: "Subcontractor carries commercial general liability." },
+    { term: "Confidentiality", body: "Both parties keep non-public information confidential." },
+    { term: "Intellectual Property / Work-Product Ownership", body: "Work product vests in the prime." },
+    { term: "Termination for Convenience", body: "Either party may terminate on 30 days notice." },
+    { term: "Termination for Cause", body: "Immediate termination on uncured material breach." },
+    { term: "Warranty", body: "Services performed in a workmanlike manner." },
+    { term: "Dispute Resolution and Governing Law", body: "Governed by the laws of the performance state." },
+  ],
+};
+
 export interface TestDeps {
   deps: LogicDeps;
   sendOutreachEmail: Mock;
   sendBriefEmail: Mock;
   fetchDoc: Mock;
+  /** Spy for sendLossNotification (a separate, narrower deps shape — see logic.ts). */
+  sendLossNotificationEmail: Mock;
 }
 
 export function makeDeps(ai: Partial<LogicDeps["ai"]> = {}): TestDeps {
   const sendOutreachEmail = vi.fn(async () => ({ id: "email_test" }));
   const sendBriefEmail = vi.fn(async () => ({ id: "brief_test" }));
   const fetchDoc = vi.fn(async () => ({ bytes: new Uint8Array(), contentType: "application/json" }));
+  const sendLossNotificationEmail = vi.fn(async () => ({ id: "loss_email_test" }));
 
   const fullAi: LogicDeps["ai"] = {
     triageSolicitation: ai.triageSolicitation ?? (async () => DEFAULT_TRIAGE),
@@ -86,6 +113,19 @@ export function makeDeps(ai: Partial<LogicDeps["ai"]> = {}): TestDeps {
           submissionGates: input.submissionGates,
           provisionalRatesMode: input.provisionalRatesMode,
         })),
+    // Default: assemble a real (deterministic) subcontract package around a canned narrative — no model
+    // call, so tests exercise the genuine FAR flow-down assembly. Override per-case to throw FailClosedError.
+    draftSubcontractAgreement:
+      ai.draftSubcontractAgreement ??
+      (async (input) =>
+        assembleSubcontractPackage({
+          narrative: DEFAULT_SUBCONTRACT_NARRATIVE,
+          contractType: input.contractType,
+          totalValueUsd: input.totalValueUsd,
+          milestones: input.milestones,
+          flowDown: input.flowDown,
+          provisionalRatesMode: input.provisionalRatesMode,
+        })),
   };
 
   return {
@@ -93,5 +133,6 @@ export function makeDeps(ai: Partial<LogicDeps["ai"]> = {}): TestDeps {
     sendOutreachEmail,
     sendBriefEmail,
     fetchDoc,
+    sendLossNotificationEmail,
   };
 }

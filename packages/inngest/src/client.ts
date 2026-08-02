@@ -27,6 +27,14 @@ export type HermesEvents = {
   "hermes/quote.selected": {
     data: { orgId: string; solicitationId: string; quoteId: string; selectedBy: string };
   };
+  // Emitted SOLELY by recordOutcome (apps/web/app/admin/solicitations/[id]/subcontract/actions.ts — the
+  // §3.1 award-recording action) when an admin records a government AWARD decision. It cascades the
+  // subcontract record from the already-SELECTED winning quote and drafts the (unsigned) subcontract
+  // agreement for admin review — it never sends anything to the vendor and never starts e-signature. The
+  // human already gated by recording the award, so the drafting function is event-triggered.
+  "hermes/solicitation.awarded": {
+    data: { orgId: string; solicitationId: string; awardedBy: string };
+  };
 };
 
 export const inngest = new Inngest({

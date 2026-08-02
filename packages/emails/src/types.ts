@@ -15,6 +15,16 @@ export interface OutreachEmailInput {
   optoutUrl: string;
 }
 
+/**
+ * §3.1.5 loss-notification: sent to a losing vendor/prospect once an admin approves it (mirrors the
+ * outreach approval pattern — never sent automatically the instant a quote flips to REJECTED).
+ */
+export interface LossNotificationEmailInput {
+  to: string;
+  companyName: string;
+  solicitationTitle: string;
+}
+
 export interface BriefItem {
   label: string;
   detail?: string;

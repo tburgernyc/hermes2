@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   groupByColumn,
   humanizeStatus,
+  isOutcomeRecordableStatus,
   isQualifiableProspectStatus,
   SOLICITATION_BOARD,
 } from "./admin-board";
@@ -75,6 +76,27 @@ describe("isQualifiableProspectStatus", () => {
   test("is false for terminal / already-advanced statuses", () => {
     for (const s of ["QUALIFIED", "PROMOTED", "DECLINED", "OPTED_OUT", "anything-else"]) {
       expect(isQualifiableProspectStatus(s)).toBe(false);
+    }
+  });
+});
+
+describe("isOutcomeRecordableStatus", () => {
+  test("is true only for SUBMITTED (the honest precondition — the bid actually left the building)", () => {
+    expect(isOutcomeRecordableStatus("SUBMITTED")).toBe(true);
+  });
+
+  test("is false before submission and for already-terminal outcome states", () => {
+    for (const s of [
+      "PENDING_TRIAGE",
+      "TRIAGE_COMPLETE",
+      "PROPOSAL_DRAFT",
+      "PRICING_PENDING",
+      "AWARDED",
+      "REJECTED",
+      "CLOSED",
+      "anything-else",
+    ]) {
+      expect(isOutcomeRecordableStatus(s)).toBe(false);
     }
   });
 });

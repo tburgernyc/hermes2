@@ -31,6 +31,9 @@ if (HAS_DB && ownerDsn) {
 }
 // mintToken/hashToken need a signing secret; provide a deterministic throwaway for tests if unset.
 process.env.TOKEN_SIGNING_SECRET ??= "inngest-test-token-signing-secret-0123456789";
+// draftSubcontract stores the drafted agreement via @hermes/core's getStorage(); opt into the in-process
+// memory driver for tests (mirrors playwright.config.ts) — never touches real object storage.
+process.env.STORAGE_DRIVER ??= "memory";
 
 import { getDb, getPool, type Tx } from "@hermes/db";
 

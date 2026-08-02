@@ -17,7 +17,14 @@
 import { randomUUID } from "node:crypto";
 
 import type { Engine } from "@hermes/ai";
-import { buildCostModel, FailClosedError, MODELS, renderSubcontractDraftText } from "@hermes/ai";
+import {
+  assembleCapabilityStatement,
+  buildCostModel,
+  FailClosedError,
+  MODELS,
+  renderCapabilityStatementText,
+  renderSubcontractDraftText,
+} from "@hermes/ai";
 import type { SubcontractMilestoneInput } from "@hermes/ai";
 // Operators come from @hermes/db (the package that owns the drizzle-orm instance) so their SQL<> types
 // match the table objects — never import these from "drizzle-orm" directly (see packages/db/src/orm.ts).
@@ -48,7 +55,14 @@ import {
   vendors,
   type Tx,
 } from "@hermes/db";
-import { contractDocumentKey, getStorage, hashToken, mintToken, sha256Hex } from "@hermes/core";
+import {
+  contractDocumentKey,
+  getStorage,
+  hashToken,
+  mintToken,
+  sha256Hex,
+  solicitationDocumentKey,
+} from "@hermes/core";
 import type { BriefItem, LossNotificationEmailInput, MorningBriefInput, OutreachEmailInput } from "@hermes/emails";
 
 import { writeAudit, type FetchResult } from "./safety.js";
@@ -83,6 +97,8 @@ export interface LogicDeps {
     | "evaluateQuotes"
     | "draftBid"
     | "draftSubcontractAgreement"
+    | "draftCapabilityStatement"
+    | "extractComplianceMatrix"
   >;
   sendOutreachEmail: (input: OutreachEmailInput) => Promise<{ id?: string }>;
   sendBriefEmail: (input: MorningBriefInput) => Promise<{ id?: string }>;
@@ -101,6 +117,11 @@ export interface LogicDeps {
 export interface IngestedSolicitation {
   id: string;
   noticeId: string;
+  /** §3.8.1: true when this notice was routed onto the lighter sources-sought/RFI track (rfiTrackStatus
+   *  set to RECEIVED at insert). The caller (samScan) uses this to skip emitting the normal
+   *  hermes/solicitation.ingested event — an RFI-track row must never reach the AI-triage / bid-award
+   *  spine (no AWARDED/WON/LOST for these). */
+  rfiTrack: boolean;
 }
 
 export interface DraftedOutreach {
@@ -151,10 +172,48 @@ interface NoticeShape {
   fullParentPathName?: unknown;
   naicsCode?: unknown;
   description?: unknown;
+  /** SAM.gov opportunities-v2 "type" field, e.g. "Solicitation", "Sources Sought", "Presolicitation". */
+  type?: unknown;
 }
 
 function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/** DB notice_type enum values that route onto the lighter §3.8.1 sources-sought/RFI track. */
+const RFI_TRACK_NOTICE_TYPES = new Set(["SOURCES_SOUGHT", "RFI"]);
+
+type NoticeTypeValue =
+  | "SOLICITATION"
+  | "COMBINED_SYNOPSIS_SOLICITATION"
+  | "PRESOLICITATION"
+  | "SOURCES_SOUGHT"
+  | "RFI"
+  | "SPECIAL_NOTICE"
+  | "AWARD_NOTICE"
+  | "JUSTIFICATION";
+
+/** Normalize SAM.gov's free-text "type" field onto the DB notice_type enum. Unrecognized/absent → null
+ *  (never guessed) so an unmapped notice simply stays off the RFI track and flows the normal bid/award way. */
+function mapNoticeType(raw: string | undefined): NoticeTypeValue | null {
+  if (!raw) return null;
+  const norm = raw.trim().toLowerCase();
+  const table: Record<string, NoticeTypeValue> = {
+    solicitation: "SOLICITATION",
+    "combined synopsis/solicitation": "COMBINED_SYNOPSIS_SOLICITATION",
+    "combined synopsis / solicitation": "COMBINED_SYNOPSIS_SOLICITATION",
+    presolicitation: "PRESOLICITATION",
+    "pre-solicitation": "PRESOLICITATION",
+    "sources sought": "SOURCES_SOUGHT",
+    "sources-sought": "SOURCES_SOUGHT",
+    rfi: "RFI",
+    "request for information": "RFI",
+    "special notice": "SPECIAL_NOTICE",
+    "award notice": "AWARD_NOTICE",
+    justification: "JUSTIFICATION",
+    "justification and approval": "JUSTIFICATION",
+  };
+  return table[norm] ?? null;
 }
 
 /* ===================================================================================
@@ -197,6 +256,13 @@ export async function ingestSolicitations(
     const noticeId = asString(n.noticeId);
     if (!noticeId) continue;
 
+    // §3.8.1: SOURCES_SOUGHT/RFI notices are informational capture-development activity (no bid, no
+    // award) — route them onto the lighter rfi_track_status axis at THIS entry point, never the bid/award
+    // spine. rfiTrackStatus stays NULL (the default) for every other notice type — the PRIME flow is
+    // completely untouched below.
+    const mappedType = mapNoticeType(asString(n.type));
+    const rfiTrack = mappedType !== null && RFI_TRACK_NOTICE_TYPES.has(mappedType);
+
     const rows = await tx
       .insert(solicitations)
       .values({
@@ -205,8 +271,10 @@ export async function ingestSolicitations(
         title: asString(n.title) ?? "Untitled solicitation",
         agency: asString(n.fullParentPathName) ?? null,
         naicsCode: validNaics(asString(n.naicsCode)),
+        noticeType: mappedType,
         scopeText: asString(n.description) ?? "", // raw SOW — treated as DATA at triage time
-        status: "PENDING_TRIAGE",
+        status: "PENDING_TRIAGE", // unchanged for EVERY notice — the RFI track is a separate axis (rfiTrackStatus)
+        ...(rfiTrack ? { rfiTrackStatus: "RECEIVED" as const } : {}),
       })
       // Idempotent on the (org_id, notice_id) unique index — re-running a cron never double-ingests.
       .onConflictDoNothing({ target: [solicitations.orgId, solicitations.noticeId] })
@@ -214,11 +282,11 @@ export async function ingestSolicitations(
 
     const inserted = rows[0];
     if (!inserted) continue;
-    ingested.push({ id: inserted.id, noticeId });
+    ingested.push({ id: inserted.id, noticeId, rfiTrack });
     await writeAudit(tx, {
       orgId,
       actorType: "SYSTEM",
-      action: "SOLICITATION_INGESTED",
+      action: rfiTrack ? "SOLICITATION_RFI_RECEIVED" : "SOLICITATION_INGESTED",
       entityType: "solicitations",
       entityId: inserted.id,
       after: { noticeId, title: asString(n.title) ?? null },
@@ -909,6 +977,23 @@ export async function draftProposalBid(
       liveReady: pkg.liveSubmission.ready,
     },
   });
+
+  // §3.8.3: extract the Section L/M compliance matrix so it renders alongside this drafted proposal.
+  // INFORMATIVE ONLY (never gates/blocks) — a failure here (even an unexpected one) must never take down
+  // the proposal draft that already committed above, so every error is swallowed + audited, never thrown.
+  try {
+    await extractLmComplianceMatrix(tx, deps, { orgId, solicitationId });
+  } catch (err) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "LM_COMPLIANCE_MATRIX_EXTRACTION_ERRORED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
+
   return { status: "DRAFTED", proposalId: inserted!.id };
 }
 
@@ -1215,6 +1300,331 @@ export async function draftSubcontract(
   });
 
   return { status: "DRAFTED", contractId, documentId };
+}
+
+/* ===================================================================================
+ * §3.8.1 SOURCES-SOUGHT/RFI CAPTURE TRACK — deliberately LIGHTER than the bid/award state machine above.
+ * rfi_track_status is a SEPARATE axis from `status` (never AWARDED/WON/LOST for these rows). Every
+ * transition here is an ADMIN action (human-gated), mirroring the existing solicitation action pattern.
+ * =================================================================================== */
+
+/**
+ * RECEIVED → CAPABILITY_DRAFTED. Triggered by hermes/rfi.capability-statement.requested, emitted ONLY by
+ * an admin action (the human gate — mirrors onSourcingApproved). Drafts a capability-statement RESPONSE
+ * (model prose only, no pricing) and stores it as a CAPABILITY_STATEMENT `documents` row for admin review.
+ * Idempotent: the atomic conditional UPDATE only succeeds from RECEIVED, so a duplicate/stale event is a
+ * no-op. Fail-closed: a FailClosedError from the model leaves the row at RECEIVED with no document written.
+ */
+export async function draftRfiCapabilityStatement(
+  tx: Tx,
+  deps: LogicDeps,
+  args: { orgId: string; solicitationId: string },
+): Promise<
+  | { status: "DRAFTED"; documentId: string }
+  | { status: "NOT_FOUND" }
+  | { status: "REFUSED" }
+  | { status: "FAILED_CLOSED" }
+> {
+  const { orgId, solicitationId } = args;
+
+  const [sol] = await tx
+    .select({ title: solicitations.title, scopeText: solicitations.scopeText, rfiTrackStatus: solicitations.rfiTrackStatus })
+    .from(solicitations)
+    .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)))
+    .limit(1);
+  if (!sol) return { status: "NOT_FOUND" };
+
+  if (sol.rfiTrackStatus !== "RECEIVED") {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "RFI_CAPABILITY_STATEMENT_DRAFT_REFUSED_NOT_RECEIVED",
+      entityType: "solicitations",
+      entityId: solicitationId,
+      after: { rfiTrackStatus: sol.rfiTrackStatus },
+    });
+    return { status: "REFUSED" };
+  }
+
+  const [org] = await tx.select({ name: orgs.name }).from(orgs).where(eq(orgs.id, orgId)).limit(1);
+
+  let draft;
+  try {
+    draft = await deps.ai.draftCapabilityStatement({ title: sol.title, scopeText: sol.scopeText ?? "" });
+  } catch (err) {
+    if (err instanceof FailClosedError) {
+      await writeAudit(tx, {
+        orgId,
+        actorType: "SYSTEM",
+        action: "RFI_CAPABILITY_STATEMENT_DRAFT_FAILED_CLOSED",
+        entityType: "solicitations",
+        entityId: solicitationId,
+        after: { stage: err.stage },
+      });
+      return { status: "FAILED_CLOSED" };
+    }
+    throw err; // transient → Inngest retries
+  }
+
+  // Atomic conditional advance — races (a duplicate event) lose harmlessly: only the first winner writes.
+  const advanced = await tx
+    .update(solicitations)
+    .set({ rfiTrackStatus: "CAPABILITY_DRAFTED" })
+    .where(
+      and(
+        eq(solicitations.orgId, orgId),
+        eq(solicitations.id, solicitationId),
+        eq(solicitations.rfiTrackStatus, "RECEIVED"),
+      ),
+    )
+    .returning({ id: solicitations.id });
+  if (advanced.length === 0) {
+    await writeAudit(tx, {
+      orgId,
+      actorType: "SYSTEM",
+      action: "RFI_CAPABILITY_STATEMENT_DRAFT_SKIPPED_RACE",
+      entityType: "solicitations",
+      entityId: solicitationId,
+    });
+    return { status: "REFUSED" };
+  }
+
+  const pkg = assembleCapabilityStatement(draft);
+  const documentId = randomUUID();
+  const text = renderCapabilityStatementText(pkg, {
+    orgName: org?.name ?? "Burger Consulting LLC",
+    solicitationTitle: sol.title,
+  });
+  const bytes = new TextEncoder().encode(text);
+  const key = solicitationDocumentKey(orgId, solicitationId, documentId, "md");
+  await getStorage().put(key, bytes, "text/markdown");
+
+  await tx.insert(documents).values({
+    id: documentId,
+    orgId,
+    entityType: "SOLICITATION",
+    solicitationId,
+    kind: "CAPABILITY_STATEMENT",
+    storageKey: key,
+    contentType: "text/markdown",
+    byteSize: bytes.byteLength,
+    sha256: sha256Hex(bytes),
+    magicByteValidated: true, // system-generated bytes, not a client upload
+  });
+
+  await writeAudit(tx, {
+    orgId,
+    actorType: "SYSTEM",
+    action: "RFI_CAPABILITY_STATEMENT_DRAFTED",
+    entityType: "solicitations",
+    entityId: solicitationId,
+    after: { documentId },
+  });
+  return { status: "DRAFTED", documentId };
+}
+
+/**
+ * Record that a human has submitted the sources-sought/RFI response (the AI draft was reviewed/edited
+ * outside this flow, or the admin wrote their own). Allowed from RECEIVED (the AI draft is optional) or
+ * CAPABILITY_DRAFTED. A pure human recording action — no model call, no outbound send (CLAUDE.md §2).
+ */
+export async function recordRfiResponseSubmitted(
+  tx: Tx,
+  args: { orgId: string; solicitationId: string; recordedBy: string; recordedByEmail: string | null },
+): Promise<{ status: "RECORDED" | "REFUSED" }> {
+  const { orgId, solicitationId, recordedBy, recordedByEmail } = args;
+  const rows = await tx
+    .update(solicitations)
+    .set({ rfiTrackStatus: "RESPONSE_SUBMITTED" })
+    .where(
+      and(
+        eq(solicitations.orgId, orgId),
+        eq(solicitations.id, solicitationId),
+        inArray(solicitations.rfiTrackStatus, ["RECEIVED", "CAPABILITY_DRAFTED"]),
+      ),
+    )
+    .returning({ id: solicitations.id });
+  if (rows.length === 0) return { status: "REFUSED" };
+  await writeAudit(tx, {
+    orgId,
+    actorType: "ADMIN",
+    actorUserId: recordedBy,
+    actorEmail: recordedByEmail,
+    action: "RFI_RESPONSE_SUBMITTED",
+    entityType: "solicitations",
+    entityId: solicitationId,
+  });
+  return { status: "RECORDED" };
+}
+
+/** Close an RFI-track pursuit with no further action (a human decision not to respond further, terminal). */
+export async function closeRfiNoAction(
+  tx: Tx,
+  args: { orgId: string; solicitationId: string; closedBy: string; closedByEmail: string | null },
+): Promise<{ status: "CLOSED" | "REFUSED" }> {
+  const { orgId, solicitationId, closedBy, closedByEmail } = args;
+  const rows = await tx
+    .update(solicitations)
+    .set({ rfiTrackStatus: "CLOSED_NO_ACTION" })
+    .where(
+      and(
+        eq(solicitations.orgId, orgId),
+        eq(solicitations.id, solicitationId),
+        inArray(solicitations.rfiTrackStatus, ["RECEIVED", "CAPABILITY_DRAFTED", "RESPONSE_SUBMITTED"]),
+      ),
+    )
+    .returning({ id: solicitations.id });
+  if (rows.length === 0) return { status: "REFUSED" };
+  await writeAudit(tx, {
+    orgId,
+    actorType: "ADMIN",
+    actorUserId: closedBy,
+    actorEmail: closedByEmail,
+    action: "RFI_CLOSED_NO_ACTION",
+    entityType: "solicitations",
+    entityId: solicitationId,
+  });
+  return { status: "CLOSED" };
+}
+
+/**
+ * CONVERTED: an admin decision that the agency has issued (or is expected to issue) an actual tracked
+ * solicitation off the back of this sources-sought/RFI. Creates a NEW solicitations row — a normal
+ * bid/award-track pursuit (rfi_track_status NULL, status PENDING_TRIAGE) — linked back via
+ * converted_from_solicitation_id, and flips the ORIGINAL row's rfi_track_status to CONVERTED (terminal on
+ * the RFI axis; the original row's `status` column is never touched — the two axes stay independent).
+ * The atomic conditional UPDATE on the original happens FIRST so a race (double-click) can create at most
+ * one new pursuit.
+ */
+export async function convertRfiToPursuit(
+  tx: Tx,
+  args: { orgId: string; solicitationId: string; convertedBy: string; convertedByEmail: string | null },
+): Promise<{ status: "CONVERTED"; newSolicitationId: string } | { status: "REFUSED" }> {
+  const { orgId, solicitationId, convertedBy, convertedByEmail } = args;
+
+  const advanced = await tx
+    .update(solicitations)
+    .set({ rfiTrackStatus: "CONVERTED" })
+    .where(
+      and(
+        eq(solicitations.orgId, orgId),
+        eq(solicitations.id, solicitationId),
+        inArray(solicitations.rfiTrackStatus, ["RECEIVED", "CAPABILITY_DRAFTED", "RESPONSE_SUBMITTED"]),
+      ),
+    )
+    .returning({
+      id: solicitations.id,
+      noticeId: solicitations.noticeId,
+      title: solicitations.title,
+      agency: solicitations.agency,
+      naicsCode: solicitations.naicsCode,
+      pscCode: solicitations.pscCode,
+      setAsideType: solicitations.setAsideType,
+      scopeText: solicitations.scopeText,
+    });
+  const original = advanced[0];
+  if (!original) return { status: "REFUSED" };
+
+  const inserted = await tx
+    .insert(solicitations)
+    .values({
+      orgId,
+      noticeId: `${original.noticeId}-CONVERTED-${randomUUID().slice(0, 8)}`,
+      title: original.title,
+      agency: original.agency,
+      naicsCode: original.naicsCode,
+      pscCode: original.pscCode,
+      setAsideType: original.setAsideType,
+      scopeText: original.scopeText,
+      status: "PENDING_TRIAGE", // a normal, real pursuit — the ordinary bid/award spine picks it up from here
+      convertedFromSolicitationId: original.id,
+      // rfiTrackStatus intentionally omitted (NULL) — this new row is NOT on the RFI track.
+    })
+    .returning({ id: solicitations.id });
+  const newSolicitationId = inserted[0]!.id;
+
+  await writeAudit(tx, {
+    orgId,
+    actorType: "ADMIN",
+    actorUserId: convertedBy,
+    actorEmail: convertedByEmail,
+    action: "RFI_CONVERTED",
+    entityType: "solicitations",
+    entityId: solicitationId,
+    after: { newSolicitationId },
+  });
+  await writeAudit(tx, {
+    orgId,
+    actorType: "ADMIN",
+    actorUserId: convertedBy,
+    actorEmail: convertedByEmail,
+    action: "SOLICITATION_CREATED_FROM_RFI_CONVERSION",
+    entityType: "solicitations",
+    entityId: newSolicitationId,
+    after: { convertedFromSolicitationId: solicitationId },
+  });
+
+  return { status: "CONVERTED", newSolicitationId };
+}
+
+/* ===================================================================================
+ * §3.8.3 SECTION L/M COMPLIANCE-MATRIX EXTRACTION — INFORMATIVE/STRUCTURING output only. It never gates
+ * or blocks anything by itself; it makes the EXISTING human compliance-review gate (§3.2) more effective
+ * by giving it a concrete checklist to check the drafted proposal against, instead of a human re-reading
+ * the whole solicitation from scratch. Stored on the solicitation row (not the proposal) so it survives a
+ * proposal being re-drafted/superseded. Never throws on a model failure — a matrix is nice-to-have, never
+ * a blocker (callers that also draft a proposal must not have THAT succeed-or-fail on this).
+ * =================================================================================== */
+export async function extractLmComplianceMatrix(
+  tx: Tx,
+  deps: LogicDeps,
+  args: { orgId: string; solicitationId: string },
+): Promise<{ status: "EXTRACTED" | "NOT_FOUND" | "FAILED_CLOSED" }> {
+  const { orgId, solicitationId } = args;
+
+  const [sol] = await tx
+    .select({ title: solicitations.title, scopeText: solicitations.scopeText })
+    .from(solicitations)
+    .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)))
+    .limit(1);
+  if (!sol) return { status: "NOT_FOUND" };
+
+  let matrix;
+  try {
+    matrix = await deps.ai.extractComplianceMatrix({ title: sol.title, scopeText: sol.scopeText ?? "" });
+  } catch (err) {
+    if (err instanceof FailClosedError) {
+      await writeAudit(tx, {
+        orgId,
+        actorType: "SYSTEM",
+        action: "LM_COMPLIANCE_MATRIX_EXTRACTION_FAILED_CLOSED",
+        entityType: "solicitations",
+        entityId: solicitationId,
+        after: { stage: err.stage },
+      });
+      return { status: "FAILED_CLOSED" };
+    }
+    throw err; // transient → caller decides (draftProposalBid swallows; the durable fn retries)
+  }
+
+  await tx
+    .update(solicitations)
+    .set({
+      lmComplianceMatrix: matrix,
+      lmExtractedAt: new Date(),
+      lmExtractionModel: MODELS.triage,
+    })
+    .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)));
+
+  await writeAudit(tx, {
+    orgId,
+    actorType: "SYSTEM",
+    action: "LM_COMPLIANCE_MATRIX_EXTRACTED",
+    entityType: "solicitations",
+    entityId: solicitationId,
+    after: { itemCount: matrix.items.length, sectionLFound: matrix.sectionLFound, sectionMFound: matrix.sectionMFound },
+  });
+  return { status: "EXTRACTED" };
 }
 
 /* ===================================================================================

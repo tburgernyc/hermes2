@@ -26,10 +26,16 @@ import {
 } from "@hermes/db";
 
 import {
+  closeRfiNoAction,
+  convertRfiToPursuit,
   draftProposalBid,
+  draftRfiCapabilityStatement,
   draftSubcontract,
+  extractLmComplianceMatrix,
+  ingestSolicitations,
   onSourcingApproved,
   rankQuotes,
+  recordRfiResponseSubmitted,
   sendLossNotification,
   sendOutreach,
   triage,
@@ -880,5 +886,385 @@ d("sendLossNotification (§3.1 item 5 — sends only an admin-approved, previous
       const { sendLossNotificationEmail: succeeding } = makeDeps();
       const retried = await sendLossNotification(tx, { sendLossNotificationEmail: succeeding }, args);
       expect(retried.status).toBe("SENT");
+    }));
+});
+
+/* =====================================================================================
+ * §3.8.1 — the sources-sought/RFI capture track. Deliberately LIGHTER than the bid/award state
+ * machine: rfi_track_status is a SEPARATE axis from `status`, and these tests prove the axis really is
+ * separate (the bid/award spine's `status` column is never touched by any RFI transition, and an RFI-track
+ * notice never reaches AWARDED/WON/LOST).
+ * ===================================================================================== */
+
+function samPayload(notices: Record<string, unknown>[]): { bytes: Uint8Array; contentType: string } {
+  return {
+    bytes: new TextEncoder().encode(JSON.stringify({ opportunitiesData: notices })),
+    contentType: "application/json",
+  };
+}
+
+d("ingestSolicitations (§3.8.1 entry-point routing — the fork point)", () => {
+  it("routes a Sources Sought notice onto the RFI track (rfiTrackStatus=RECEIVED) without disturbing the bid/award `status` column", () =>
+    withRollbackTx(async (tx) => {
+      const { deps, fetchDoc } = makeDeps();
+      const orgId = await insertOrg(tx);
+      const noticeId = `SS-${orgId.slice(0, 8)}`;
+      fetchDoc.mockResolvedValueOnce(
+        samPayload([
+          {
+            noticeId,
+            title: "Cybersecurity Sources Sought",
+            type: "Sources Sought",
+            naicsCode: "541511",
+          },
+        ]),
+      );
+
+      const result = await ingestSolicitations(tx, deps, { orgId });
+      expect(result).toHaveLength(1);
+      expect(result[0]!.rfiTrack).toBe(true); // the samScan wrapper uses this to skip AI triage entirely
+
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, result[0]!.id));
+      expect(sol!.rfiTrackStatus).toBe("RECEIVED");
+      expect(sol!.noticeType).toBe("SOURCES_SOUGHT");
+      // The bid/award spine is UNTOUCHED: status stays the plain ingest default, never advanced.
+      expect(sol!.status).toBe("PENDING_TRIAGE");
+      expect(sol!.feasibilityScore).toBeNull();
+      expect(sol!.triagedAt).toBeNull();
+
+      const audits = await tx
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.orgId, orgId), eq(auditLog.action, "SOLICITATION_RFI_RECEIVED")));
+      expect(audits).toHaveLength(1);
+    }));
+
+  it("routes an RFI-typed notice onto the same track", () =>
+    withRollbackTx(async (tx) => {
+      const { deps, fetchDoc } = makeDeps();
+      const orgId = await insertOrg(tx);
+      fetchDoc.mockResolvedValueOnce(
+        samPayload([{ noticeId: `RFI-${orgId.slice(0, 8)}`, title: "RFI notice", type: "RFI" }]),
+      );
+      const result = await ingestSolicitations(tx, deps, { orgId });
+      expect(result[0]!.rfiTrack).toBe(true);
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, result[0]!.id));
+      expect(sol!.rfiTrackStatus).toBe("RECEIVED");
+      expect(sol!.noticeType).toBe("RFI");
+    }));
+
+  it("leaves an ordinary Solicitation notice completely off the RFI track (rfiTrackStatus stays NULL)", () =>
+    withRollbackTx(async (tx) => {
+      const { deps, fetchDoc } = makeDeps();
+      const orgId = await insertOrg(tx);
+      fetchDoc.mockResolvedValueOnce(
+        samPayload([
+          { noticeId: `SOL-${orgId.slice(0, 8)}`, title: "Real Solicitation", type: "Solicitation" },
+        ]),
+      );
+      const result = await ingestSolicitations(tx, deps, { orgId });
+      expect(result[0]!.rfiTrack).toBe(false);
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, result[0]!.id));
+      expect(sol!.rfiTrackStatus).toBeNull();
+      expect(sol!.noticeType).toBe("SOLICITATION");
+      expect(sol!.status).toBe("PENDING_TRIAGE"); // unaffected — proceeds through the normal spine
+
+      const audits = await tx
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.orgId, orgId), eq(auditLog.action, "SOLICITATION_INGESTED")));
+      expect(audits).toHaveLength(1); // the ORDINARY audit action, not SOLICITATION_RFI_RECEIVED
+    }));
+
+  it("leaves a notice with no/unrecognized type off the RFI track (never guessed)", () =>
+    withRollbackTx(async (tx) => {
+      const { deps, fetchDoc } = makeDeps();
+      const orgId = await insertOrg(tx);
+      fetchDoc.mockResolvedValueOnce(
+        samPayload([{ noticeId: `UNK-${orgId.slice(0, 8)}`, title: "Mystery notice" }]),
+      );
+      const result = await ingestSolicitations(tx, deps, { orgId });
+      expect(result[0]!.rfiTrack).toBe(false);
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, result[0]!.id));
+      expect(sol!.rfiTrackStatus).toBeNull();
+      expect(sol!.noticeType).toBeNull();
+    }));
+});
+
+d("draftRfiCapabilityStatement (RECEIVED → CAPABILITY_DRAFTED, reuses the AI drafting pattern)", () => {
+  it("drafts a capability-statement document and advances RECEIVED → CAPABILITY_DRAFTED", () =>
+    withRollbackTx(async (tx) => {
+      const { deps } = makeDeps();
+      const orgId = await insertOrg(tx);
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "RECEIVED" });
+
+      const result = await draftRfiCapabilityStatement(tx, deps, { orgId, solicitationId: solId });
+      expect(result.status).toBe("DRAFTED");
+      if (result.status !== "DRAFTED") throw new Error("unreachable");
+
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(sol!.rfiTrackStatus).toBe("CAPABILITY_DRAFTED");
+      // The bid/award `status` axis is completely untouched by this RFI transition.
+      expect(sol!.status).toBe("PENDING_TRIAGE");
+
+      const docs = await tx.select().from(documents).where(eq(documents.id, result.documentId));
+      expect(docs).toHaveLength(1);
+      expect(docs[0]!.kind).toBe("CAPABILITY_STATEMENT");
+      expect(docs[0]!.entityType).toBe("SOLICITATION");
+      expect(docs[0]!.solicitationId).toBe(solId);
+
+      const audits = await tx
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.orgId, orgId), eq(auditLog.action, "RFI_CAPABILITY_STATEMENT_DRAFTED")));
+      expect(audits).toHaveLength(1);
+    }));
+
+  it("refuses (no-op) when the solicitation is not at RECEIVED", () =>
+    withRollbackTx(async (tx) => {
+      const { deps } = makeDeps();
+      const orgId = await insertOrg(tx);
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "CAPABILITY_DRAFTED" });
+      const result = await draftRfiCapabilityStatement(tx, deps, { orgId, solicitationId: solId });
+      expect(result.status).toBe("REFUSED");
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(sol!.rfiTrackStatus).toBe("CAPABILITY_DRAFTED"); // unchanged
+    }));
+
+  it("fails closed (no advance, no document) when the model output cannot be validated", () =>
+    withRollbackTx(async (tx) => {
+      const { deps } = makeDeps({
+        draftCapabilityStatement: async () => {
+          throw new FailClosedError("CapabilityStatementDraft", "schema mismatch");
+        },
+      });
+      const orgId = await insertOrg(tx);
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "RECEIVED" });
+      const result = await draftRfiCapabilityStatement(tx, deps, { orgId, solicitationId: solId });
+      expect(result.status).toBe("FAILED_CLOSED");
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(sol!.rfiTrackStatus).toBe("RECEIVED"); // unchanged
+      const docs = await tx
+        .select()
+        .from(documents)
+        .where(and(eq(documents.orgId, orgId), eq(documents.solicitationId, solId)));
+      expect(docs).toHaveLength(0);
+    }));
+});
+
+d("recordRfiResponseSubmitted (a pure human recording — no model, no send)", () => {
+  it("advances CAPABILITY_DRAFTED → RESPONSE_SUBMITTED and audits as ADMIN", () =>
+    withRollbackTx(async (tx) => {
+      const orgId = await insertOrg(tx);
+      const adminId = await insertUser(tx, orgId, { role: "ADMIN" });
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "CAPABILITY_DRAFTED" });
+      const result = await recordRfiResponseSubmitted(tx, {
+        orgId,
+        solicitationId: solId,
+        recordedBy: adminId,
+        recordedByEmail: "admin@example.test",
+      });
+      expect(result.status).toBe("RECORDED");
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(sol!.rfiTrackStatus).toBe("RESPONSE_SUBMITTED");
+      const audits = await tx
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.orgId, orgId), eq(auditLog.action, "RFI_RESPONSE_SUBMITTED")));
+      expect(audits).toHaveLength(1);
+      expect(audits[0]!.actorType).toBe("ADMIN");
+    }));
+
+  it("also allows RECEIVED → RESPONSE_SUBMITTED directly (the AI draft step is optional)", () =>
+    withRollbackTx(async (tx) => {
+      const orgId = await insertOrg(tx);
+      const adminId = await insertUser(tx, orgId, { role: "ADMIN" });
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "RECEIVED" });
+      const result = await recordRfiResponseSubmitted(tx, {
+        orgId,
+        solicitationId: solId,
+        recordedBy: adminId,
+        recordedByEmail: null,
+      });
+      expect(result.status).toBe("RECORDED");
+    }));
+
+  it("refuses from a terminal state (CLOSED_NO_ACTION / CONVERTED)", () =>
+    withRollbackTx(async (tx) => {
+      const orgId = await insertOrg(tx);
+      const adminId = await insertUser(tx, orgId, { role: "ADMIN" });
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "CLOSED_NO_ACTION" });
+      const result = await recordRfiResponseSubmitted(tx, {
+        orgId,
+        solicitationId: solId,
+        recordedBy: adminId,
+        recordedByEmail: null,
+      });
+      expect(result.status).toBe("REFUSED");
+    }));
+});
+
+d("closeRfiNoAction (terminal — a human decision not to pursue further)", () => {
+  it("closes an active RFI-track row and audits as ADMIN", () =>
+    withRollbackTx(async (tx) => {
+      const orgId = await insertOrg(tx);
+      const adminId = await insertUser(tx, orgId, { role: "ADMIN" });
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "RECEIVED" });
+      const result = await closeRfiNoAction(tx, {
+        orgId,
+        solicitationId: solId,
+        closedBy: adminId,
+        closedByEmail: null,
+      });
+      expect(result.status).toBe("CLOSED");
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(sol!.rfiTrackStatus).toBe("CLOSED_NO_ACTION");
+      expect(sol!.status).toBe("PENDING_TRIAGE"); // bid/award axis untouched
+    }));
+
+  it("refuses once already CONVERTED", () =>
+    withRollbackTx(async (tx) => {
+      const orgId = await insertOrg(tx);
+      const adminId = await insertUser(tx, orgId, { role: "ADMIN" });
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "CONVERTED" });
+      const result = await closeRfiNoAction(tx, {
+        orgId,
+        solicitationId: solId,
+        closedBy: adminId,
+        closedByEmail: null,
+      });
+      expect(result.status).toBe("REFUSED");
+    }));
+});
+
+d("convertRfiToPursuit (CONVERTED — creates a NEW, ordinary tracked pursuit)", () => {
+  it("creates a linked new solicitation (status PENDING_TRIAGE, rfiTrackStatus NULL — a real pursuit) and flips the original to CONVERTED", () =>
+    withRollbackTx(async (tx) => {
+      const orgId = await insertOrg(tx);
+      const adminId = await insertUser(tx, orgId, { role: "ADMIN" });
+      const solId = await insertSolicitation(tx, orgId, {
+        rfiTrackStatus: "RESPONSE_SUBMITTED",
+        naicsCode: "541511",
+        title: "Cyber Sources Sought",
+      });
+
+      const result = await convertRfiToPursuit(tx, {
+        orgId,
+        solicitationId: solId,
+        convertedBy: adminId,
+        convertedByEmail: "admin@example.test",
+      });
+      expect(result.status).toBe("CONVERTED");
+      if (result.status !== "CONVERTED") throw new Error("unreachable");
+
+      const [original] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(original!.rfiTrackStatus).toBe("CONVERTED");
+      // The original's bid/award `status` is NEVER touched by the RFI axis — proves the two axes are
+      // genuinely independent, exactly as CLAUDE.md/enums.ts document.
+      expect(original!.status).toBe("PENDING_TRIAGE");
+
+      const [created] = await tx
+        .select()
+        .from(solicitations)
+        .where(eq(solicitations.id, result.newSolicitationId));
+      expect(created!.convertedFromSolicitationId).toBe(solId);
+      expect(created!.rfiTrackStatus).toBeNull(); // NOT on the RFI track — a normal tracked pursuit
+      expect(created!.status).toBe("PENDING_TRIAGE"); // enters the ordinary bid/award spine from scratch
+      expect(created!.title).toBe("Cyber Sources Sought");
+      expect(created!.naicsCode).toBe("541511");
+      // The new pursuit can NEVER have been fast-tracked to AWARDED/WON/LOST by the conversion itself.
+      expect(["AWARDED", "SUBMITTED"]).not.toContain(created!.status);
+
+      const audits = await tx
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.orgId, orgId), eq(auditLog.action, "RFI_CONVERTED")));
+      expect(audits).toHaveLength(1);
+    }));
+
+  it("refuses (no new row created) once already CONVERTED", () =>
+    withRollbackTx(async (tx) => {
+      const orgId = await insertOrg(tx);
+      const adminId = await insertUser(tx, orgId, { role: "ADMIN" });
+      const solId = await insertSolicitation(tx, orgId, { rfiTrackStatus: "CONVERTED" });
+      const before = await tx.select({ id: solicitations.id }).from(solicitations).where(eq(solicitations.orgId, orgId));
+
+      const result = await convertRfiToPursuit(tx, {
+        orgId,
+        solicitationId: solId,
+        convertedBy: adminId,
+        convertedByEmail: null,
+      });
+      expect(result.status).toBe("REFUSED");
+      const after = await tx.select({ id: solicitations.id }).from(solicitations).where(eq(solicitations.orgId, orgId));
+      expect(after).toHaveLength(before.length); // no orphan row created
+    }));
+});
+
+d("extractLmComplianceMatrix (§3.8.3 — informative only, never gates/blocks)", () => {
+  it("extracts and stores a Section L/M matrix with provenance (extractedAt + model)", () =>
+    withRollbackTx(async (tx) => {
+      const { deps } = makeDeps();
+      const orgId = await insertOrg(tx);
+      const solId = await insertSolicitation(tx, orgId, {
+        scopeText: "Section L: submit a technical volume. Section M: technical is more important than price.",
+      });
+
+      const result = await extractLmComplianceMatrix(tx, deps, { orgId, solicitationId: solId });
+      expect(result.status).toBe("EXTRACTED");
+
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(sol!.lmComplianceMatrix).toBeTruthy();
+      const matrix = sol!.lmComplianceMatrix as { items: unknown[]; sectionLFound: boolean };
+      expect(matrix.sectionLFound).toBe(true);
+      expect(matrix.items.length).toBeGreaterThan(0);
+      expect(sol!.lmExtractedAt).toBeInstanceOf(Date);
+      expect(sol!.lmExtractionModel).toBeTruthy();
+
+      const audits = await tx
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.orgId, orgId), eq(auditLog.action, "LM_COMPLIANCE_MATRIX_EXTRACTED")));
+      expect(audits).toHaveLength(1);
+    }));
+
+  it("fails closed WITHOUT throwing — leaves the matrix null and audits, never blocks a caller", () =>
+    withRollbackTx(async (tx) => {
+      const { deps } = makeDeps({
+        extractComplianceMatrix: async () => {
+          throw new FailClosedError("ComplianceMatrix", "schema mismatch");
+        },
+      });
+      const orgId = await insertOrg(tx);
+      const solId = await insertSolicitation(tx, orgId);
+
+      const result = await extractLmComplianceMatrix(tx, deps, { orgId, solicitationId: solId });
+      expect(result.status).toBe("FAILED_CLOSED");
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(sol!.lmComplianceMatrix).toBeNull();
+
+      const audits = await tx
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.orgId, orgId),
+            eq(auditLog.action, "LM_COMPLIANCE_MATRIX_EXTRACTION_FAILED_CLOSED"),
+          ),
+        );
+      expect(audits).toHaveLength(1);
+    }));
+
+  it("runs as a non-blocking side effect of draftProposalBid — a real drafted proposal ALSO gets the matrix populated", () =>
+    withRollbackTx(async (tx) => {
+      const { deps } = makeDeps();
+      const { orgId, solId, quoteId } = await seedSelected(tx);
+      const selectedBy = await insertUser(tx, orgId);
+      const result = await draftProposalBid(tx, deps, { orgId, solicitationId: solId, quoteId, selectedBy });
+      expect(result.status).toBe("DRAFTED");
+
+      const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
+      expect(sol!.lmComplianceMatrix).toBeTruthy();
+      expect(sol!.lmExtractedAt).toBeInstanceOf(Date);
     }));
 });

@@ -35,6 +35,14 @@ export type HermesEvents = {
   "hermes/solicitation.awarded": {
     data: { orgId: string; solicitationId: string; awardedBy: string };
   };
+  // Emitted SOLELY by requestRfiCapabilityStatementDraft (apps/web/app/admin/(console)/rfi/actions.ts —
+  // §3.8.1) when an admin clicks "Draft capability statement" on a RECEIVED sources-sought/RFI-track
+  // solicitation. Drafts prose only (no pricing, no commitment) and stores it as a CAPABILITY_STATEMENT
+  // document for admin review — it never submits/sends anything. The human already gated by clicking, so
+  // the drafting function is event-triggered (not a waitForEvent gate), mirroring quote.selected.
+  "hermes/rfi.capability-statement.requested": {
+    data: { orgId: string; solicitationId: string; requestedBy: string };
+  };
 };
 
 export const inngest = new Inngest({

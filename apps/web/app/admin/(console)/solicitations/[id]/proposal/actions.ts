@@ -18,10 +18,11 @@ import {
   orgs,
   parseDirectives,
   proposals,
+  solicitations,
   withOrg,
 } from "@hermes/db";
 import { readyForLiveSubmission } from "@hermes/ai";
-import { writeAudit } from "@hermes/inngest";
+import { reextractSolicitationComplianceMatrix, writeAudit } from "@hermes/inngest";
 
 import { requireAdmin } from "@/lib/auth-guard";
 
@@ -35,6 +36,31 @@ function readId(formData: FormData, key: string): string {
 
 function revalidateProposal(solicitationId: string | null): void {
   if (solicitationId) revalidatePath(`/admin/solicitations/${solicitationId}/proposal`);
+}
+
+/**
+ * §3.8.3: re-run the Section L/M compliance-matrix extraction on demand (e.g. after scopeText changed, or
+ * the automatic extraction at draft time failed). INFORMATIVE ONLY — it never gates or blocks the
+ * proposal workflow; it only refreshes the matrix shown alongside the draft. No model score decides
+ * anything here; extractLmComplianceMatrix itself fails closed (never throws) on an unvalidated output.
+ */
+export async function reextractComplianceMatrix(formData: FormData): Promise<void> {
+  const session = await requireAdmin();
+  const orgId = session.user.orgId;
+  const solicitationId = readId(formData, "solicitationId");
+
+  // Defense in depth: confirm the solicitation is actually in this org before spending a model call.
+  const [sol] = await withOrg(orgId, (tx) =>
+    tx
+      .select({ id: solicitations.id })
+      .from(solicitations)
+      .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, solicitationId)))
+      .limit(1),
+  );
+  if (sol) {
+    await reextractSolicitationComplianceMatrix(orgId, solicitationId);
+  }
+  revalidatePath(`/admin/solicitations/${solicitationId}/proposal`);
 }
 
 /** Record that counsel has reviewed the draft (DRAFT → COUNSEL_REVIEW). A human decision; no outbound. */

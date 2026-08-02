@@ -83,6 +83,11 @@ export async function insertSolicitation(
     /** §3.1 outcome gate: AWARDED/REJECTED/CLOSED requires a recorded human + timestamp. */
     outcomeRecordedBy?: string | null;
     awardDate?: Date | null;
+    /** §3.8: the sources-sought/RFI capture track (a separate axis from `status` — see enums.ts). */
+    noticeType?: string | null;
+    rfiTrackStatus?: string | null;
+    convertedFromSolicitationId?: string | null;
+    title?: string;
   } = {},
 ): Promise<string> {
   const approvedBy = opts.sourcingApprovedBy ?? null;
@@ -94,7 +99,7 @@ export async function insertSolicitation(
     .values({
       orgId,
       noticeId: `NOTICE-${uniq()}`,
-      title: "Test Solicitation",
+      title: opts.title ?? "Test Solicitation",
       scopeText: opts.scopeText ?? "Provide IT support services.",
       status: (opts.status ?? "PENDING_TRIAGE") as never,
       sourcingApprovedBy: approvedBy,
@@ -109,6 +114,9 @@ export async function insertSolicitation(
       outcomeRecordedBy,
       outcomeRecordedAt: outcomeRecordedBy ? new Date() : null,
       awardDate: opts.awardDate ?? null,
+      noticeType: (opts.noticeType ?? null) as never,
+      rfiTrackStatus: (opts.rfiTrackStatus ?? null) as never,
+      convertedFromSolicitationId: opts.convertedFromSolicitationId ?? null,
     })
     .returning({ id: solicitations.id });
   return row!.id;

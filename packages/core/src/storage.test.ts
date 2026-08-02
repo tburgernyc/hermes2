@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { contractDocumentKey, getStorage, quoteDocumentKey, vendorQuoteDocumentKey } from "./storage.js";
+import {
+  contractDocumentKey,
+  getStorage,
+  quoteDocumentKey,
+  solicitationDocumentKey,
+  vendorQuoteDocumentKey,
+} from "./storage.js";
 
 describe("object-key builders", () => {
   it("prospect-scoped tokenized quote key (quoteDocumentKey)", () => {
@@ -33,6 +39,16 @@ describe("object-key builders", () => {
     const draft = contractDocumentKey("org1", "contract1", "doc1", "md");
     const signed = contractDocumentKey("org1", "contract1", "doc2", "pdf");
     expect(draft).not.toBe(signed);
+  });
+
+  it("system-generated solicitation document key (solicitationDocumentKey — §3.8.1 capability statements)", () => {
+    expect(solicitationDocumentKey("org1", "sol1", "doc1", "md")).toBe(
+      "orgs/org1/solicitations/sol1/documents/doc1.md",
+    );
+    // A redraft against the same solicitation never overwrites the prior document.
+    const first = solicitationDocumentKey("org1", "sol1", "doc1", "md");
+    const second = solicitationDocumentKey("org1", "sol1", "doc2", "md");
+    expect(first).not.toBe(second);
   });
 });
 

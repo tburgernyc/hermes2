@@ -18,7 +18,12 @@ import { Button } from "@/components/ui/Button";
 import { humanizeStatus } from "@/lib/admin-board";
 import { requireAdmin } from "@/lib/auth-guard";
 
-import { counselReviewProposal, markProposalReady, submitProposal } from "./actions";
+import {
+  counselReviewProposal,
+  markProposalReady,
+  reextractComplianceMatrix,
+  submitProposal,
+} from "./actions";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -48,6 +53,20 @@ interface ComplianceJson {
   provisional?: boolean;
   watermark?: string | null;
   disclaimer?: string;
+}
+
+/** §3.8.3 Section L/M compliance matrix (informative only — see @hermes/ai ComplianceMatrix schema). */
+interface LmMatrixItem {
+  reference: string;
+  category: "INSTRUCTIONS_TO_OFFERORS" | "EVALUATION_CRITERIA" | "OTHER";
+  requirement: string;
+  proposalSectionMapping?: string;
+}
+interface LmMatrixJson {
+  items?: LmMatrixItem[];
+  sectionLFound?: boolean;
+  sectionMFound?: boolean;
+  notes?: string;
 }
 
 const pct = (v: number | null | undefined): string =>
@@ -86,7 +105,14 @@ export default async function ProposalReview({
 
   const data = await withOrg(orgId, async (tx) => {
     const [sol] = await tx
-      .select({ id: solicitations.id, title: solicitations.title, status: solicitations.status })
+      .select({
+        id: solicitations.id,
+        title: solicitations.title,
+        status: solicitations.status,
+        lmComplianceMatrix: solicitations.lmComplianceMatrix,
+        lmExtractedAt: solicitations.lmExtractedAt,
+        lmExtractionModel: solicitations.lmExtractionModel,
+      })
       .from(solicitations)
       .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, id)))
       .limit(1);
@@ -109,6 +135,8 @@ export default async function ProposalReview({
   const scenarios = pricing.scenarios ?? [];
   const blockers = compliance.liveSubmission?.blockers ?? [];
   const liveReady = compliance.liveSubmission?.ready === true;
+  const lmMatrix = (sol.lmComplianceMatrix ?? null) as LmMatrixJson | null;
+  const lmItems = lmMatrix?.items ?? [];
 
   return (
     <main>
@@ -172,6 +200,63 @@ export default async function ProposalReview({
 
       <Section title="Bid checklist (§3)">
         <Checklist items={compliance.bidChecklist?.checklist ?? []} />
+      </Section>
+
+      <Section title="Section L/M compliance matrix (§3.8.3 — informative only, checked against the draft above)">
+        <Card>
+          <p className={c.meta}>
+            AI-parsed Section L (instructions to offerors) / Section M (evaluation criteria) requirements
+            from the raw solicitation text — a structuring aid for your compliance review below, not a
+            gate. It does not block anything by itself.
+          </p>
+          {lmMatrix ? (
+            <p className={c.meta} data-testid="lm-matrix-provenance">
+              Section L found: {lmMatrix.sectionLFound ? "yes" : "no"} · Section M found:{" "}
+              {lmMatrix.sectionMFound ? "yes" : "no"}
+              {sol.lmExtractedAt ? ` · extracted ${sol.lmExtractedAt.toISOString()}` : ""}
+              {sol.lmExtractionModel ? ` · model ${sol.lmExtractionModel}` : ""}
+            </p>
+          ) : (
+            <p className={c.empty}>Not yet extracted.</p>
+          )}
+          {lmItems.length === 0 ? (
+            <p className={c.empty}>No requirements extracted.</p>
+          ) : (
+            <div className={c.tableWrap}>
+              <table className={c.table} data-testid="lm-matrix-table">
+                <thead>
+                  <tr>
+                    <th>Reference</th>
+                    <th>Category</th>
+                    <th>Requirement</th>
+                    <th>Maps to</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lmItems.map((it, i) => (
+                    <tr key={i} data-testid={`lm-item-${i}`}>
+                      <td>{it.reference}</td>
+                      <td>
+                        <Badge tone={it.category === "EVALUATION_CRITERIA" ? "info" : "neutral"}>
+                          {humanizeStatus(it.category)}
+                        </Badge>
+                      </td>
+                      <td>{it.requirement}</td>
+                      <td>{it.proposalSectionMapping ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {lmMatrix?.notes && <p className={c.rationale}>{lmMatrix.notes}</p>}
+          <form action={reextractComplianceMatrix}>
+            <input type="hidden" name="solicitationId" value={sol.id} />
+            <Button type="submit" size="sm" variant="secondary">
+              {lmMatrix ? "Re-extract" : "Extract"} Section L/M requirements
+            </Button>
+          </form>
+        </Card>
       </Section>
 
       <section data-testid="live-blockers" className={c.section}>

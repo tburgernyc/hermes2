@@ -7,7 +7,7 @@
 import Link from "next/link";
 import type { JSX } from "react";
 
-import { desc, eq, solicitations, withOrg } from "@hermes/db";
+import { and, desc, eq, isNull, solicitations, withOrg } from "@hermes/db";
 
 import { Badge, Card, PageHeader } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
@@ -36,7 +36,9 @@ export default async function SolicitationsBoard(): Promise<JSX.Element> {
         zeroFloatFit: solicitations.zeroFloatFit,
       })
       .from(solicitations)
-      .where(eq(solicitations.orgId, orgId))
+      // §3.8.1: sources-sought/RFI notices are on a SEPARATE, lighter status track (rfi_track_status) —
+      // they never advance this `status` axis, so they are excluded here and worked at /admin/rfi instead.
+      .where(and(eq(solicitations.orgId, orgId), isNull(solicitations.rfiTrackStatus)))
       .orderBy(desc(solicitations.createdAt))
       .limit(200),
   );
@@ -47,7 +49,16 @@ export default async function SolicitationsBoard(): Promise<JSX.Element> {
     <main>
       <PageHeader
         title="Solicitations"
-        lede="Sourced from SAM.gov and triaged by the AI (a recommendation only — you decide)."
+        lede={
+          <>
+            Sourced from SAM.gov and triaged by the AI (a recommendation only — you decide). Sources-sought
+            / RFI notices are worked on a lighter track at{" "}
+            <Link href="/admin/rfi" className={c.crumb}>
+              /admin/rfi
+            </Link>
+            .
+          </>
+        }
       />
 
       <div className={c.kanban}>

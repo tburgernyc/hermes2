@@ -88,3 +88,46 @@ export const SubcontractNarrative = z.object({
     ),
 });
 export type SubcontractNarrative = z.infer<typeof SubcontractNarrative>;
+
+/**
+ * draftCapabilityStatement output (§3.8.1 sources-sought/RFI track) — prose only, no pricing, no
+ * commitments. Responds to a sources-sought/RFI notice with WHO the firm is and WHY it is capable,
+ * never a priced bid. This is a DRAFT for human review; RESPONSE_SUBMITTED is recorded by a human, never
+ * automatic (CLAUDE.md §2).
+ */
+export const CapabilityStatementDraft = z.object({
+  organizationOverview: z.string().max(2000),
+  relevantExperience: z.string().max(2000),
+  technicalCapabilities: z.string().max(2000),
+  differentiators: z.array(z.string()).default([]),
+});
+export type CapabilityStatementDraft = z.infer<typeof CapabilityStatementDraft>;
+
+/**
+ * extractComplianceMatrix output (§3.8.3) — Section L (instructions to offerors) / Section M (evaluation
+ * criteria) requirements parsed out of the raw solicitation `scopeText` into a structured checklist. This
+ * is INFORMATIVE/STRUCTURING output only: it does not gate or block anything by itself. It exists so the
+ * existing human compliance-review gate (§3.2) has something concrete to check the drafted proposal
+ * against, instead of a human re-reading the entire solicitation from scratch.
+ */
+export const ComplianceMatrixCategory = z.enum(["INSTRUCTIONS_TO_OFFERORS", "EVALUATION_CRITERIA", "OTHER"]);
+
+export const ComplianceMatrixItem = z.object({
+  reference: z.string().max(120).describe("e.g. 'Section L.3.2' or 'Section M.1' or 'Not sectioned'"),
+  category: ComplianceMatrixCategory,
+  requirement: z.string().max(600),
+  proposalSectionMapping: z
+    .string()
+    .max(200)
+    .optional()
+    .describe("Which proposal volume/section this requirement maps to, if the solicitation states one"),
+});
+export type ComplianceMatrixItem = z.infer<typeof ComplianceMatrixItem>;
+
+export const ComplianceMatrix = z.object({
+  sectionLFound: z.boolean().describe("Whether a Section L (instructions to offerors) was identified"),
+  sectionMFound: z.boolean().describe("Whether a Section M (evaluation criteria) was identified"),
+  items: z.array(ComplianceMatrixItem).default([]),
+  notes: z.string().max(1000).optional(),
+});
+export type ComplianceMatrix = z.infer<typeof ComplianceMatrix>;

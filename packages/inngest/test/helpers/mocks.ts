@@ -7,6 +7,8 @@ import { vi, type Mock } from "vitest";
 
 import { assembleBidPackage, assembleSubcontractPackage } from "@hermes/ai";
 import type {
+  CapabilityStatementDraft,
+  ComplianceMatrix,
   ProposalNarrative,
   ProspectScore,
   SowBrief,
@@ -68,6 +70,34 @@ const DEFAULT_SUBCONTRACT_NARRATIVE: SubcontractNarrative = {
   ],
 };
 
+/** §3.8.1: a canned (prose-only) capability-statement draft — no pricing, no commitments. */
+const DEFAULT_CAPABILITY_STATEMENT: CapabilityStatementDraft = {
+  organizationOverview: "Small-business federal IT services provider.",
+  relevantExperience: "Prior tiered IT support engagements.",
+  technicalCapabilities: "Help desk, endpoint management, cloud migration.",
+  differentiators: ["Founder-led", "Fast onboarding"],
+};
+
+/** §3.8.3: a canned Section L/M compliance matrix — informative extraction only. */
+const DEFAULT_COMPLIANCE_MATRIX: ComplianceMatrix = {
+  sectionLFound: true,
+  sectionMFound: true,
+  items: [
+    {
+      reference: "Section L.3.1",
+      category: "INSTRUCTIONS_TO_OFFERORS",
+      requirement: "Submit a technical volume not to exceed 20 pages.",
+      proposalSectionMapping: "Volume I — Technical",
+    },
+    {
+      reference: "Section M.1",
+      category: "EVALUATION_CRITERIA",
+      requirement: "Technical approach is more important than price.",
+    },
+  ],
+  notes: "Two-volume submission required.",
+};
+
 export interface TestDeps {
   deps: LogicDeps;
   sendOutreachEmail: Mock;
@@ -126,6 +156,8 @@ export function makeDeps(ai: Partial<LogicDeps["ai"]> = {}): TestDeps {
           flowDown: input.flowDown,
           provisionalRatesMode: input.provisionalRatesMode,
         })),
+    draftCapabilityStatement: ai.draftCapabilityStatement ?? (async () => DEFAULT_CAPABILITY_STATEMENT),
+    extractComplianceMatrix: ai.extractComplianceMatrix ?? (async () => DEFAULT_COMPLIANCE_MATRIX),
   };
 
   return {

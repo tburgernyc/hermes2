@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { Pool } from "pg";
 
-import { E2E_ORG_SLUG } from "./fixtures";
+import { E2E_ADMIN_EMAIL, E2E_ORG_SLUG } from "./fixtures";
 import { loginAdmin } from "./admin-auth";
 
 const OWNER_DSN =
@@ -26,11 +26,24 @@ async function orgId(db: Pool): Promise<string> {
   return id;
 }
 
+async function adminUserId(db: Pool, oid: string): Promise<string> {
+  const r = await db.query<{ id: string }>(
+    `SELECT id FROM users WHERE org_id = $1 AND lower(email) = lower($2) LIMIT 1`,
+    [oid, E2E_ADMIN_EMAIL],
+  );
+  const id = r.rows[0]?.id;
+  if (!id) throw new Error("finance.spec: e2e admin not found (global-setup did not run?)");
+  return id;
+}
+
 async function seedContract(db: Pool, oid: string): Promise<{ contractId: string; vendorName: string }> {
   const vendorName = `Finance Vendor ${randomUUID()}`;
+  const vetterId = await adminUserId(db, oid);
+  // vendors_vetted_requires_vetter CHECK: a VETTED vendor must carry a recorded vetter + timestamp.
   const vendor = await db.query<{ id: string }>(
-    `INSERT INTO vendors (org_id, company_name, status) VALUES ($1, $2, 'VETTED') RETURNING id`,
-    [oid, vendorName],
+    `INSERT INTO vendors (org_id, company_name, status, vetted_by, vetted_at)
+     VALUES ($1, $2, 'VETTED'::vendor_status, $3, now()) RETURNING id`,
+    [oid, vendorName, vetterId],
   );
   const vendorId = vendor.rows[0]!.id;
   const contract = await db.query<{ id: string }>(
@@ -89,12 +102,13 @@ test("recording a government invoice, confirming payment, and linking a payable 
 
     await expect(page.getByTestId("invoices-table")).toContainText(invoiceNumber);
 
-    // Not yet submitted: no government-payment deadline shown.
+    // Not yet submitted: no government-payment deadline shown. Status renders via humanizeStatus
+    // (admin-board.ts) — "DRAFT" → "Draft", title case, not the raw enum value.
     const row = page.getByRole("row").filter({ hasText: invoiceNumber });
-    await expect(row).toContainText("DRAFT");
+    await expect(row).toContainText("Draft");
 
     await row.getByRole("button", { name: "Mark submitted" }).click();
-    await expect(page.getByRole("row").filter({ hasText: invoiceNumber })).toContainText("SUBMITTED");
+    await expect(page.getByRole("row").filter({ hasText: invoiceNumber })).toContainText("Submitted");
     // The 14-day PROGRESS government-payment deadline now shows (derived from submitted_at).
     await expect(page.getByRole("row").filter({ hasText: invoiceNumber })).toContainText("on_track");
 
@@ -113,8 +127,8 @@ test("recording a government invoice, confirming payment, and linking a payable 
 
     // Now record a payable and link it to this just-paid invoice — its due date must DERIVE from paid_at
     // (accelerated_payments = false on this seeded contract, so the standard 7-day clock applies).
-    await page.fill('form[action] input[name="amount"]', "4500"); // the payable form's amount field
-    // Disambiguate: the payable form is the second form on the page with an "amount" field.
+    // Disambiguate: the invoice form's "amount" field is the first on the page; the payable form's is
+    // the second — nth(1) targets the payable form specifically.
     const payableAmountInputs = page.locator('input[name="amount"]');
     await payableAmountInputs.nth(1).fill("4500");
     await page.getByRole("button", { name: "Record payable" }).click();
@@ -216,7 +230,10 @@ test("admin home surfaces the AI-spend rollup and compliance/payments-at-risk ti
   await page.goto("/admin");
   await expect(page.getByText("AI spend (7d)")).toBeVisible();
   await expect(page.getByText("Payments at risk / missed")).toBeVisible();
-  await expect(page.getByText("Compliance reminders")).toBeVisible();
+  // exact:true — the plain stat-tile label "Compliance reminders" is also a SUBSTRING of the section
+  // heading "Compliance reminders (SAM registration / reps & certs)" further down the same page, which
+  // trips Playwright's strict-mode multi-match check under a default (substring) getByText.
+  await expect(page.getByText("Compliance reminders", { exact: true })).toBeVisible();
 });
 
 test("settings exposes the SAM registration expiry + reps/certs recert date fields", async ({ page }) => {

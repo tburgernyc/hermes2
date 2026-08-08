@@ -270,6 +270,66 @@ learned "instincts" rather than letting them silently accrete in auth, pricing, 
 > Append one entry per phase as it closes. Newest first. Record what shipped, any
 > non-obvious decisions, and what is left for the operator to run.
 
+### CORRECTION — the "`unstable_update` cookie-persist race" never existed. The e2e login helper aborted its own request. (2026-08-08)
+
+**This entry supersedes the root-cause claim in the Phase 6 PR-G and PR-I entries below, and retires the
+`/admin/totp` cold-start item from deferred tech-debt #23.** Read this before you spend an hour warming a
+server that was never cold. The wrong diagnosis stood from Phase 6 PR-G (2026-06-16) to now, and it is the
+reason the "fix" was `retries: 2` — which masked the symptom for two months instead of removing it.
+
+**What PR-G recorded (WRONG):** that next-auth v5's `unstable_update` "intermittently fails to PERSIST the
+refreshed session cookie when the standalone server is cold/contended," so the step-up computed
+`totpVerified=true` and redirected but the cookie was never written, and middleware bounced `/admin` back to
+`/admin/totp`. It followed from that the failure "needs wall-clock TIME to warm, not more calls."
+
+**What is actually true.** Two waits in the shared `apps/web/e2e/admin-auth.ts` `loginAdmin` helper did not
+wait for what they were named after. Each is sufficient on its own to fail every attempt on a fully warm,
+perfectly healthy server:
+
+1. **`await page.waitForLoadState("networkidle")` after clicking the TOTP submit is not a wait for the
+   step-up POST.** Playwright resolves it as soon as the CURRENT document has already reached network-idle —
+   always true after the retry loop's own backoff sleep. So the following `page.goto("/admin")` fired ~130 ms
+   later, destroyed the document, and **aborted the in-flight Server Action before its `Set-Cookie` could
+   return.** Instrumented against a warm local server: the POST logs a request line and **never a response
+   line**, then `/admin` 307s back to `/admin/totp`. That is byte-for-byte the CI signature. **The cookie is
+   never missing — it is never even requested. The client cancels its own POST.**
+2. **`isVisible()` does not auto-wait.** `/admin` is `force-dynamic`, so behind a route-level Suspense
+   boundary the heading is in the DOM but unpainted when `goto` resolves, and a bare `isVisible()` reports
+   `false` for a perfectly live session (reproduced 3/3 with a boundary present, 3/3 true without).
+
+**Why this looked non-deterministic and server-temperature-dependent.** Attempt #1 is the only attempt that
+can ever win, because from #2 onward the backoff guarantees `networkidle` has already fired and the POST is
+always aborted. Whether #1 wins is a sub-second race, so anything that shifts page timing by a few hundred
+milliseconds — a new spec in the file, a new `loading.tsx`, runner contention — flips a branch from green to
+red without touching a line of auth code. That is also why adding `invite.spec` in PR-I appeared to "tip the
+race over": it changed timing, not correctness.
+
+**The fix (test-only, `feat/3.2-baseline-audit` commit `8904911`):** arm `page.waitForResponse` for the
+`POST /admin/totp` **before** the click, await it, let the redirect settle, and use the auto-retrying
+`expect(...).toBeVisible()` instead of `isVisible()`. The helper's guarantee is unchanged and stronger — it
+still proves the session is live by making a GUARDED page really render, never by trusting a redirect URL.
+`maxAttempts`, the growing backoff and the failure trace are untouched, and **no timeout or retry count was
+raised as the fix.** Result: 23 passed / 4 failed / 13 never ran → **40 passed, 0 never ran**, with the
+Suspense boundaries still in place.
+
+**Consequences for how you work:**
+- **`retries: 2` in `playwright.config.ts` stays, but it is no longer load-bearing** and must never again be
+  offered as the fix for this class of failure. It is what hid a deterministic client-side bug for two months.
+- **Do not use `waitForLoadState("networkidle")` to wait for a Server Action.** Arm `waitForResponse` on the
+  action's POST *before* the click. Never navigate away from a page with an action in flight — the browser
+  aborts it and the write may or may not have committed.
+- **Do not use `isVisible()` for a first assertion after navigation.** Use `expect(...).toBeVisible()`, which
+  auto-retries. A bare `isVisible()` in an `if` is worse than a failure: `award-subcontract.spec.ts` had
+  `if (await textarea.isVisible())` silently SKIPPING a review-confirm click, turning a real assertion into a
+  no-op.
+- **`/admin/totp` needs no hardening for this.** Remove it from the tech-debt #23 list. Nothing was ever
+  proven wrong with the production step-up path; the durable rate-limit store and least-privilege
+  `hermes_public`/`hermes_onboarding` roles in #23 are unaffected and still open.
+- **A green `web-e2e` was not evidence this was fixed, and 13 tests silently not running is a failure mode in
+  itself.** Three e2e seeds violated live CHECK constraints (`solicitations_sourcing_gate` ×1,
+  `sourcing_gate` + `outcome_gate` ×2) and were invisible in CI only because their `beforeAll` died first.
+  When a suite reports "did not run," treat that as red, not as noise.
+
 ### Phase 7 — PR 7c: Go-live — Fly release_command migrations + health check + runbook — **CODE COMPLETE** (2026-06-17)
 
 The final Phase-7 slice (closes the outward-facing/operational phase): the production **DB-migration step**
@@ -333,8 +393,9 @@ is already gated by `db`/`inngest`/`web-e2e`).
 `MIGRATION_DATABASE_URL` owner DSN + `hermes_app` LOGIN), rotate the exposed Neon password + `NEON_API_KEY`,
 resolve `HERMES_ACTIVE_ORG_IDS`, set branch-protection required checks, point `HEARTBEAT_URL` at an external
 monitor, then `fly deploy` (Tier-1). All `pendingCounsel`; no real bid until `readyForLiveSubmission`. Deferred
-tech-debt #23 (hermes_public/onboarding least-priv roles; durable rate-limit store; /admin/totp cold-start
-race) unchanged.
+tech-debt #23 (hermes_public/onboarding least-priv roles; durable rate-limit store; ~~/admin/totp cold-start
+race~~ — **that third item is RETIRED as of 2026-08-08; it was an e2e-helper bug, not a production race. See
+the CORRECTION entry at the top of §11**) otherwise unchanged.
 
 ### Phase 7 — PR 7b: Production hardening (CSP/headers + rate-limits + Sentry + heartbeat) — **CODE COMPLETE** (2026-06-17)
 
@@ -534,8 +595,9 @@ type-check clean (standalone). The 10 DB negatives + the e2e run in CI (`db` + `
 
 **NEXT — Phase 7** (marketing site + production hardening: CSP/rate-limits/Sentry/heartbeat + go-live docs/CI
 migration step) then the operator Tier-1 deploy. Deferred tech-debt: a dedicated `hermes_onboarding` role for
-/invite; harden the `/admin/totp` cold-start `unstable_update` race. All `pendingCounsel`; no real bid until
-`readyForLiveSubmission`.
+/invite; ~~harden the `/admin/totp` cold-start `unstable_update` race~~ — **RETIRED 2026-08-08: that race was
+never real; the e2e helper aborted its own POST. See the CORRECTION entry at the top of §11.** All
+`pendingCounsel`; no real bid until `readyForLiveSubmission`.
 
 ### Phase 6 — Vendor portal PR J: "my" reads + browse RFQs + portal nav shell — **CODE COMPLETE** (2026-06-17)
 
@@ -648,6 +710,10 @@ role-per-boundary backstop — deferred to keep the PR scoped (rationale documen
   CI only (`playwright.config.ts`) — the standard mitigation; a genuine break still fails all attempts and
   `auth.spec`'s single-attempt login stays the canary. The REAL fix (harden `/admin/totp`) is still the
   deferred Phase-2 follow-up.
+  > ⚠️ **CORRECTED 2026-08-08 — this diagnosis is wrong.** `invite.spec` did not "tip a race over"; it
+  > shifted page timing by a few hundred ms, which is all it takes to flip attempt #1 of a helper that
+  > aborts its own step-up POST on every attempt from #2 onward. No `/admin/totp` hardening is needed. See
+  > the **CORRECTION** entry at the top of §11.
 
 **Verification:** `pnpm turbo typecheck lint build` 18/18; `@hermes/core` 29/29 (incl. 4 new token cases).
 The DB suite (+6 invite negatives, drift guards) and web e2e (+`invite.spec`) run in CI (no local Postgres) —
@@ -758,6 +824,13 @@ adds NO Inngest/engine code, so the e2e stays Inngest-free (it exercises only th
 3 quote + 4 console). No `ci.yml` change (the new specs are auto-discovered by the existing `web-e2e` job).
 
 **CI flake fixed post-push (PR #12, the `web-e2e` job) — a real CI-cold-start footgun, NOT a PR-G code bug.**
+
+> ⚠️ **THE ROOT CAUSE IN THIS PARAGRAPH IS WRONG — CORRECTED 2026-08-08.** There is no `unstable_update`
+> cookie-persist race and the server was never too cold. `loginAdmin`'s `waitForLoadState("networkidle")`
+> aborted its own in-flight step-up POST before the `Set-Cookie` returned. See the **CORRECTION** entry at
+> the top of §11 for the proof and the actual fix. The paragraph is kept verbatim below as the historical
+> record of what was believed at the time — do not act on its diagnosis or its "needs time to warm" advice.
+
 The 4 new admin-console specs each drive a full interactive admin login (password + live TOTP step-up); the
 first push went RED with a *non-deterministic* subset failing (different tests each run). Root cause, pinned
 via in-test diagnostics on a cold runner: **next-auth v5's `unstable_update` intermittently fails to PERSIST

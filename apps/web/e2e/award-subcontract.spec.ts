@@ -374,14 +374,18 @@ test.describe("award-subcontract (§3.1)", () => {
       await db.end();
     }
 
-    // Confirm review (the textarea may be empty if the seeded object couldn't be read back — the action
-    // requires non-empty text, so fill it explicitly here to drive the real review-confirm code path).
+    // Confirm review. The page renders this form unconditionally while the agreement is unreviewed (it
+    // shows a "could not be loaded" note and an EMPTY textarea when the seeded object isn't in the
+    // per-process memory store), so the control is always there — assert it with the AUTO-RETRYING
+    // expect() rather than a bare isVisible(). /admin is behind a route-level Suspense boundary
+    // (app/admin/(console)/loading.tsx), so an instantaneous isVisible() right after goto() reads false
+    // while the fallback is still on screen and would silently SKIP the review-confirm click — turning a
+    // real assertion into a no-op and failing later on `agreement_reviewed_by`.
     await page.goto(`/admin/solicitations/${solId}/subcontract`);
     const textarea = page.getByTestId("subcontract-draft-textarea");
-    if (await textarea.isVisible()) {
-      await textarea.fill("SUBCONTRACT AGREEMENT (DRAFT)\nReviewed and confirmed by the admin.");
-      await page.getByRole("button", { name: "Confirm review" }).click();
-    }
+    await expect(textarea).toBeVisible();
+    await textarea.fill("SUBCONTRACT AGREEMENT (DRAFT)\nReviewed and confirmed by the admin.");
+    await page.getByRole("button", { name: "Confirm review" }).click();
 
     const db3 = pool();
     try {
@@ -452,10 +456,21 @@ test.describe("award-subcontract (§3.1)", () => {
       );
       const vendorId = vendor.rows[0]!.id;
 
+      // AWARDED sits inside BOTH live human-gate CHECKs — `solicitations_sourcing_gate` and
+      // `solicitations_outcome_gate` — so the row MUST carry the sourcing approver AND the outcome
+      // recorder (with timestamps) or the insert is rejected (23514). That is also the honest fixture:
+      // this test starts AFTER a human approved sourcing and recorded the award (§3.1).
       const sol = await db.query<{ id: string }>(
-        `INSERT INTO solicitations (org_id, notice_id, title, contract_type, status)
-         VALUES ($1, $2, $3, 'FFP', 'AWARDED') RETURNING id`,
-        [ctx.orgId, `LC-${randomUUID().slice(0, 8)}`, `Lifecycle Solicitation ${randomUUID().slice(0, 8)}`],
+        `INSERT INTO solicitations
+           (org_id, notice_id, title, contract_type, status,
+            sourcing_approved_by, sourcing_approved_at, outcome_recorded_by, outcome_recorded_at)
+         VALUES ($1, $2, $3, 'FFP', 'AWARDED', $4, now(), $4, now()) RETURNING id`,
+        [
+          ctx.orgId,
+          `LC-${randomUUID().slice(0, 8)}`,
+          `Lifecycle Solicitation ${randomUUID().slice(0, 8)}`,
+          ctx.adminId,
+        ],
       );
       solId = sol.rows[0]!.id;
 
@@ -632,10 +647,19 @@ test.describe("award-subcontract (§3.1)", () => {
         [ctx.orgId, `Terminate Vendor ${randomUUID().slice(0, 8)}`, ctx.adminId],
       );
       const vendorId = vendor.rows[0]!.id;
+      // AWARDED sits inside BOTH live human-gate CHECKs (sourcing + outcome), so both approver/recorder
+      // pairs are mandatory (23514 otherwise) — and honest: a human did both (§3.1).
       const sol = await db.query<{ id: string }>(
-        `INSERT INTO solicitations (org_id, notice_id, title, contract_type, status)
-         VALUES ($1, $2, $3, 'FFP', 'AWARDED') RETURNING id`,
-        [ctx.orgId, `TERM-${randomUUID().slice(0, 8)}`, `Terminate Solicitation ${randomUUID().slice(0, 8)}`],
+        `INSERT INTO solicitations
+           (org_id, notice_id, title, contract_type, status,
+            sourcing_approved_by, sourcing_approved_at, outcome_recorded_by, outcome_recorded_at)
+         VALUES ($1, $2, $3, 'FFP', 'AWARDED', $4, now(), $4, now()) RETURNING id`,
+        [
+          ctx.orgId,
+          `TERM-${randomUUID().slice(0, 8)}`,
+          `Terminate Solicitation ${randomUUID().slice(0, 8)}`,
+          ctx.adminId,
+        ],
       );
       const solId = sol.rows[0]!.id;
       const contract = await db.query<{ id: string }>(

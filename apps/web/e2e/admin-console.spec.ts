@@ -530,11 +530,16 @@ test("admin records a bounced outreach send from the prospects page", async ({ p
   const db = pool();
   try {
     const oid = await orgId(db);
+    const adminId = await adminUserId(db, oid);
+    // SOURCING_IN_PROGRESS is inside the `solicitations_sourcing_gate` human-gate window, so the row MUST
+    // carry a recorded approver + timestamp or the insert is rejected (23514). That is also the honest
+    // fixture: an outreach campaign can only be SENT if a human approved sourcing first.
     const sol = await db.query<{ id: string }>(
-      `INSERT INTO solicitations (org_id, notice_id, title, contract_type, status)
-       VALUES ($1, $2, $3, 'FFP'::contract_type, 'SOURCING_IN_PROGRESS'::solicitation_status)
+      `INSERT INTO solicitations
+         (org_id, notice_id, title, contract_type, status, sourcing_approved_by, sourcing_approved_at)
+       VALUES ($1, $2, $3, 'FFP'::contract_type, 'SOURCING_IN_PROGRESS'::solicitation_status, $4, now())
        RETURNING id`,
-      [oid, `E2E-${randomUUID()}`, `Bounce Solicitation ${randomUUID()}`],
+      [oid, `E2E-${randomUUID()}`, `Bounce Solicitation ${randomUUID()}`, adminId],
     );
     const solId = sol.rows[0]!.id;
     const contactEmail = `bounced-${randomUUID()}@e2e.test`;
@@ -544,7 +549,6 @@ test("admin records a bounced outreach send from the prospects page", async ({ p
       [oid, contactEmail],
     );
     const prospectId = prospect.rows[0]!.id;
-    const adminId = await adminUserId(db, oid);
     const outreach = await db.query<{ id: string }>(
       `INSERT INTO outreach_campaigns
          (org_id, solicitation_id, prospect_id, step, status, subject, body, approved_by, approved_at, sent_at)

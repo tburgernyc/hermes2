@@ -12,6 +12,9 @@ import {
   E2E_ADMIN_EMAIL,
   E2E_ADMIN_PASSWORD,
   E2E_ADMIN_TOTP_SECRET,
+  E2E_CAPTURE_ADMIN_EMAIL,
+  E2E_CAPTURE_ADMIN_PASSWORD,
+  E2E_CAPTURE_ADMIN_TOTP_SECRET,
   E2E_ORG_ID,
   E2E_ORG_SLUG,
   E2E_VENDOR_EMAIL,
@@ -42,11 +45,13 @@ export default async function globalSetup(): Promise<void> {
     const orgId = org.rows[0]?.id;
     if (!orgId) throw new Error("e2e global-setup: failed to upsert org");
 
-    const [adminHash, vendorHash] = await Promise.all([
+    const [adminHash, vendorHash, captureAdminHash] = await Promise.all([
       hashPassword(E2E_ADMIN_PASSWORD),
       hashPassword(E2E_VENDOR_PASSWORD),
+      hashPassword(E2E_CAPTURE_ADMIN_PASSWORD),
     ]);
     const totpCiphertext = encryptSecret(E2E_ADMIN_TOTP_SECRET);
+    const captureTotpCiphertext = encryptSecret(E2E_CAPTURE_ADMIN_TOTP_SECRET);
 
     const adminRow = await pool.query<{ id: string }>(
       `INSERT INTO users
@@ -62,6 +67,25 @@ export default async function globalSetup(): Promise<void> {
     );
     const adminId = adminRow.rows[0]?.id;
     if (!adminId) throw new Error("e2e global-setup: failed to upsert admin");
+
+    // §3.6: a CAPTURE-level admin — admin-rbac.spec.ts proves it is refused /admin/settings server-side
+    // (middleware redirect + the action's own requireFullAdmin), not just hidden from the nav.
+    const captureAdminRow = await pool.query<{ id: string }>(
+      `INSERT INTO users
+         (org_id, email, role, admin_role, password_hash, totp_secret_ciphertext, totp_enrolled_at, is_active)
+       VALUES ($1, $2, 'ADMIN', 'CAPTURE', $3, $4, now(), true)
+       ON CONFLICT (lower(email)) DO UPDATE SET
+         admin_role = 'CAPTURE',
+         password_hash = EXCLUDED.password_hash,
+         totp_secret_ciphertext = EXCLUDED.totp_secret_ciphertext,
+         totp_enrolled_at = EXCLUDED.totp_enrolled_at,
+         is_active = true, failed_login_count = 0, locked_until = NULL
+       RETURNING id`,
+      [orgId, E2E_CAPTURE_ADMIN_EMAIL, captureAdminHash, captureTotpCiphertext],
+    );
+    if (!captureAdminRow.rows[0]?.id) {
+      throw new Error("e2e global-setup: failed to upsert capture admin");
+    }
 
     await pool.query(
       `INSERT INTO users (org_id, email, role, password_hash, is_active)

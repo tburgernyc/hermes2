@@ -11,10 +11,21 @@ import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_ADMIN_TOTP_SECRET } from "./fi
 
 export { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_ADMIN_TOTP_SECRET };
 
-export async function loginAdmin(page: Page, maxAttempts = 8): Promise<void> {
+export interface AdminCreds {
+  email: string;
+  password: string;
+  totpSecret: string;
+}
+
+/**
+ * Same self-verifying TOTP step-up loop as `loginAdmin`, parameterized over WHICH admin fixture logs in —
+ * `admin-rbac.spec.ts` uses this with the §3.6 CAPTURE-role fixture (see fixtures.ts). `loginAdmin` below
+ * is the pre-existing FULL-admin convenience wrapper every other spec already calls.
+ */
+export async function loginAdminAs(page: Page, creds: AdminCreds, maxAttempts = 8): Promise<void> {
   await page.goto("/login");
-  await page.fill('input[name="email"]', E2E_ADMIN_EMAIL);
-  await page.fill('input[name="password"]', E2E_ADMIN_PASSWORD);
+  await page.fill('input[name="email"]', creds.email);
+  await page.fill('input[name="password"]', creds.password);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/admin\/totp$/);
 
@@ -33,7 +44,7 @@ export async function loginAdmin(page: Page, maxAttempts = 8): Promise<void> {
       await page.waitForLoadState("domcontentloaded").catch(() => {});
     }
     if (page.url().includes("/admin/totp")) {
-      await page.fill('input[name="code"]', generateTotpCode(E2E_ADMIN_TOTP_SECRET));
+      await page.fill('input[name="code"]', generateTotpCode(creds.totpSecret));
       await page.click('button[type="submit"]');
       await page.waitForLoadState("networkidle").catch(() => {});
     }
@@ -50,6 +61,15 @@ export async function loginAdmin(page: Page, maxAttempts = 8): Promise<void> {
   }
 
   throw new Error(`loginAdmin: no live admin session after ${maxAttempts} step-up attempts [${trace.join(", ")}]`);
+}
+
+/** The FULL-admin convenience wrapper every pre-existing spec calls (unchanged signature/behavior). */
+export async function loginAdmin(page: Page, maxAttempts = 8): Promise<void> {
+  return loginAdminAs(
+    page,
+    { email: E2E_ADMIN_EMAIL, password: E2E_ADMIN_PASSWORD, totpSecret: E2E_ADMIN_TOTP_SECRET },
+    maxAttempts,
+  );
 }
 
 /** Tiny convenience used by some specs to assert a heading once logged in. */

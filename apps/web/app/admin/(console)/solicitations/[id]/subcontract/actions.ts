@@ -21,7 +21,7 @@ import { and, contracts, documents, eq, isNotNull, isNull, withOrg } from "@herm
 import { contractDocumentKey, getStorage, sha256Hex } from "@hermes/core";
 import { writeAudit } from "@hermes/inngest";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 // Node runtime (getStorage() needs the AWS SDK) is set on the invoking page.tsx — a "use server" module may
 // only export async functions (CLAUDE.md convention), so the route-segment config cannot live here.
@@ -42,7 +42,7 @@ function readId(formData: FormData, key: string): string {
  * follow-on, not this action.
  */
 export async function confirmSubcontractReview(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const contractId = readId(formData, "contractId");
@@ -106,7 +106,7 @@ export async function confirmSubcontractReview(formData: FormData): Promise<void
  * is recorded, but the WHERE clause guards it too so an un-reviewed contract simply no-ops.
  */
 export async function startEsign(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const contractId = readId(formData, "contractId");

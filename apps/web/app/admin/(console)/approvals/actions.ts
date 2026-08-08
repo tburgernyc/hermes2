@@ -3,7 +3,7 @@
 /**
  * The human-approval surface — and the ONLY place in the system that emits a human-gate event, sets a
  * `*_approved_by` column, or sends the §3.1 loss-notification email (CLAUDE.md §2 Prime Directive). Each
- * action re-checks the admin session server-side (requireAdmin → role + satisfied TOTP), records the
+ * action re-checks the admin session server-side (requireCaptureAccess → role + satisfied TOTP), records the
  * approver + an audit row inside an org-scoped transaction, and THEN emits the Inngest event / sends the
  * mail that lets the durable workflow proceed. A cron, a model, or any autonomous job cannot reach this
  * code: it requires an authenticated admin request, and Next.js Server Actions are same-origin/CSRF-
@@ -16,7 +16,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, outreachCampaigns, solicitations, withOrg } from "@hermes/db";
 import { inngest, sendApprovedLossNotification, writeAudit } from "@hermes/inngest";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,7 +28,7 @@ function readId(formData: FormData, key: string): string {
 
 /** Approve sourcing for a triaged solicitation: record the approver, then start the discovery workflow. */
 export async function approveSourcing(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const solicitationId = readId(formData, "solicitationId");
@@ -74,7 +74,7 @@ export async function approveSourcing(formData: FormData): Promise<void> {
 
 /** Approve a drafted outreach campaign: record the approver, then release the parked send gate. */
 export async function approveOutreach(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const outreachId = readId(formData, "outreachId");
@@ -116,7 +116,7 @@ export async function approveOutreach(formData: FormData): Promise<void> {
 
 /** Reject a drafted outreach campaign: cancel it (never sends) and notify the gate. */
 export async function rejectOutreach(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const outreachId = readId(formData, "outreachId");
@@ -164,7 +164,7 @@ export async function rejectOutreach(formData: FormData): Promise<void> {
  * in @hermes/inngest (sendLossNotification) so it stays consistent with every other send in the system.
  */
 export async function approveLossNotification(formData: FormData): Promise<void> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const userId = session.user.id;
   const quoteId = readId(formData, "quoteId");

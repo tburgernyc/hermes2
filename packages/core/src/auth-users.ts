@@ -21,6 +21,12 @@ export interface AuthUser {
   role: "ADMIN" | "VENDOR";
   /** The vetted vendor this user is linked to (null for admins / not-yet-linked vendors). */
   vendorId: string | null;
+  /**
+   * Granular admin access level (§3.6) — REQUIRED for every ADMIN row, always null for VENDOR rows
+   * (DB CHECK-enforced, packages/db/src/schema/tenancy.ts). Carried onto the session claim the same way
+   * `vendorId` is, so a page/action can gate on it without a per-request DB hit.
+   */
+  adminRole: "FULL" | "CAPTURE" | "FINANCE" | null;
   totpSecretCiphertext: string | null;
   totpEnrolledAt: Date | null;
   failedLoginCount: number;
@@ -36,6 +42,7 @@ const AUTH_COLUMNS = {
   role: users.role,
   // hermes_auth already has SELECT on every users column, so reading the link costs no new grant.
   vendorId: users.vendorId,
+  adminRole: users.adminRole,
   totpSecretCiphertext: users.totpSecretCiphertext,
   totpEnrolledAt: users.totpEnrolledAt,
   failedLoginCount: users.failedLoginCount,

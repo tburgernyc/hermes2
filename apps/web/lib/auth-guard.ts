@@ -8,6 +8,7 @@ import type { Session } from "next-auth";
 import { AuthError } from "@hermes/core";
 
 import { auth } from "@/auth";
+import { isAdminDomainAllowed, type AdminDomain } from "@/lib/admin-domains";
 
 export async function requireSession(): Promise<Session> {
   const session = await auth();
@@ -22,6 +23,37 @@ export async function requireAdmin(): Promise<Session> {
   if (!session.user.totpVerified) throw new AuthError(403, "Two-factor verification required");
   return session;
 }
+
+/**
+ * §3.6 granular admin roles — the guard primitive every /admin page and Server Action should call INSTEAD
+ * of the bare `requireAdmin()` once it touches a domain narrower than "any admin" (dashboard/audit log
+ * stay on plain `requireAdmin()` — they are OPEN). Re-checks admin + TOTP first (same as `requireAdmin`),
+ * then denies with 403 unless the session's `admin_role` claim covers `domain` (FULL always does — see
+ * `isAdminDomainAllowed` in lib/admin-domains.ts, the single source of truth middleware.ts also reads, so
+ * a page can never be reachable past middleware's redirect only to be refused here, or vice versa). This
+ * is the SERVER-SIDE boundary (CLAUDE.md §7) — never rely on hiding a nav link instead.
+ *
+ * The `admin_role` claim is session-based (no DB hit per request), stamped at login and re-synced on the
+ * existing TOTP-refresh session trigger — the same freshness semantics `vendorId` already uses. A role
+ * change made on /admin/users takes effect the next time the affected admin's session refreshes (their
+ * next login, or their next TOTP step-up/enrollment refresh), not mid-session.
+ */
+export async function requireAdminDomain(domain: AdminDomain): Promise<Session> {
+  const session = await requireAdmin();
+  if (!isAdminDomainAllowed(session.user.adminRole, domain)) {
+    throw new AuthError(403, `This admin account (${session.user.adminRole ?? "no level set"}) cannot access ${domain}.`);
+  }
+  return session;
+}
+
+/** FULL-only: `orgs.directives` / compliance settings + the admin-role-assignment surface itself. */
+export const requireFullAdmin = (): Promise<Session> => requireAdminDomain("SETTINGS");
+
+/** FULL or CAPTURE: solicitations/proposals/outreach/vendor-sourcing — never financial/payment records. */
+export const requireCaptureAccess = (): Promise<Session> => requireAdminDomain("CAPTURE");
+
+/** FULL or FINANCE: contracts/invoices/AR/timekeeping — never sourcing/outreach/proposal drafting. */
+export const requireFinanceAccess = (): Promise<Session> => requireAdminDomain("FINANCE");
 
 /** Vendor role, or 403. Use on the portal shell (pages that render for any vendor user). */
 export async function requireVendor(): Promise<Session> {

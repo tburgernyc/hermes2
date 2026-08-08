@@ -16,7 +16,7 @@ import { Badge, Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
 import { humanizeStatus } from "@/lib/admin-board";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 import { counselReviewProposal, markProposalReady, submitProposal } from "./actions";
 
@@ -79,7 +79,7 @@ export default async function ProposalReview({
 }: {
   params: Promise<{ id: string }>;
 }): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();

@@ -7,6 +7,12 @@
  * socio-economic set-aside can never be enabled — holds even if a form field were ever mis-wired. Admin
  * session re-checked; org-scoped transaction; audited. This is a configuration change, not an outbound
  * action or a workflow advance (CLAUDE.md §2 untouched).
+ *
+ * §3.6 decision-4 DB-level backstop: writes go through `withOrgAsAdmin` (not plain `withOrg`), which
+ * conveys the SERVER-RESOLVED `session.user.adminRole` to the DB as the `app.current_admin_role` GUC.
+ * `orgs`'s RESTRICTIVE `orgs_update_requires_full_admin` policy (migration 0013) then denies the
+ * UPDATE at the RLS layer unless that GUC reads exactly 'FULL' — so a bug in `requireFullAdmin()` (or
+ * any future code path that forgets to call it) still cannot rewrite compliance settings.
  */
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -16,12 +22,12 @@ import {
   orgDirectivesSchema,
   orgs,
   parseDirectives,
-  withOrg,
+  withOrgAsAdmin,
   type OrgDirectives,
 } from "@hermes/db";
 import { writeAudit } from "@hermes/inngest";
 
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireFullAdmin } from "@/lib/auth-guard";
 
 export interface SettingsState {
   ok: boolean;
@@ -169,9 +175,9 @@ function mergeDirectives(current: OrgDirectives, f: z.infer<typeof formSchema>):
 export async function updateSettings(_prev: SettingsState, formData: FormData): Promise<SettingsState> {
   let session;
   try {
-    session = await requireAdmin();
+    session = await requireFullAdmin();
   } catch {
-    return { ok: false, error: "Your session is no longer authorized. Sign in again." };
+    return { ok: false, error: "Your admin role does not permit this action." };
   }
   const orgId = session.user.orgId;
 
@@ -184,7 +190,7 @@ export async function updateSettings(_prev: SettingsState, formData: FormData): 
   const f = parsedForm.data;
 
   try {
-    await withOrg(orgId, async (tx) => {
+    await withOrgAsAdmin(orgId, session.user.adminRole, async (tx) => {
       const rows = await tx
         .select({ directives: orgs.directives, ein: orgs.ein, uei: orgs.uei, cageCode: orgs.cageCode })
         .from(orgs)
@@ -199,7 +205,7 @@ export async function updateSettings(_prev: SettingsState, formData: FormData): 
       // and every range constraint are enforced here regardless of what the form sent).
       const validated = orgDirectivesSchema.parse(merged);
 
-      await tx
+      const result = await tx
         .update(orgs)
         .set({
           name: f.name,
@@ -210,6 +216,14 @@ export async function updateSettings(_prev: SettingsState, formData: FormData): 
           directives: validated,
         })
         .where(eq(orgs.id, orgId));
+      // Belt-and-suspenders (§3.6 decision-4): the DB-level RESTRICTIVE `orgs_update_requires_full_admin`
+      // policy (migration 0013) denies a non-FULL write by making the row INVISIBLE to the UPDATE, not by
+      // throwing — Postgres RLS's USING clause silently excludes it, so `rowCount` is 0 with no exception.
+      // Without this check, a bug that ever let a non-FULL session reach this far would silently no-op the
+      // write yet still record an ORG_SETTINGS_UPDATED audit row claiming success. Fail closed instead.
+      if (result.rowCount !== 1) {
+        throw new Error("orgs update affected 0 rows — DB-level admin-role check refused the write");
+      }
 
       await writeAudit(tx, {
         orgId,

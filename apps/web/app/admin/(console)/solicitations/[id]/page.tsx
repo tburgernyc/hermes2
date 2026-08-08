@@ -2,7 +2,7 @@
  * /admin/solicitations/[id] — solicitation detail + the AI-ranked quotes. Shows the (recommendation-
  * only) triage verdict and, once quotes are in, the ranked subcontractor quotes with the human
  * shortlist / select-winner decisions. The AI rationale and vendor notes are displayed as data (JSX
- * autoescapes); they never drive a state change here (CLAUDE.md §2/§5). requireAdmin guards the page.
+ * autoescapes); they never drive a state change here (CLAUDE.md §2/§5). requireCaptureAccess guards the page.
  */
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { humanizeStatus, isOutcomeRecordableStatus } from "@/lib/admin-board";
 import { formatUsd } from "@/lib/portal";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 import { approveSourcing } from "../../approvals/actions";
 import { markNoGo, recordOutcome, selectQuote, shortlistQuote } from "../actions";
@@ -41,7 +41,7 @@ export default async function SolicitationDetail({
 }: {
   params: Promise<{ id: string }>;
 }): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();

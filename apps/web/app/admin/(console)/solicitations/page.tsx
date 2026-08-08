@@ -2,7 +2,7 @@
  * /admin/solicitations — the solicitations kanban. Lanes are the five operator phases (see admin-board).
  * A TRIAGE_COMPLETE card carries the two human sourcing decisions: approve sourcing (which emits the
  * human-gate event + arms the outreach workflow) or mark no-go. Rendering the board advances nothing
- * (CLAUDE.md §2). Middleware gates /admin; requireAdmin is defense in depth.
+ * (CLAUDE.md §2). Middleware gates /admin; requireCaptureAccess is defense in depth.
  */
 import Link from "next/link";
 import type { JSX } from "react";
@@ -13,7 +13,7 @@ import { Badge, Card, PageHeader } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
 import { groupByColumn, humanizeStatus } from "@/lib/admin-board";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 // approveSourcing is the canonical human-gate emitter; it lives with the other gate actions.
 import { approveSourcing } from "../approvals/actions";
@@ -22,7 +22,7 @@ import { markNoGo } from "./actions";
 export const dynamic = "force-dynamic";
 
 export default async function SolicitationsBoard(): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
 
   const rows = await withOrg(orgId, async (tx) =>

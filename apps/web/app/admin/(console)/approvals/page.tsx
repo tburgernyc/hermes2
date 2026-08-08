@@ -2,7 +2,7 @@
  * /admin/approvals — the human-in-the-loop console. Lists the items the autonomous pipeline has parked
  * for a human: triaged solicitations awaiting a sourcing decision, and drafted outreach awaiting approval.
  * Every button routes to a Server Action that is the ONLY emitter of a human-gate event (CLAUDE.md §2).
- * Middleware already gates /admin; requireAdmin is defense in depth.
+ * Middleware already gates /admin; requireCaptureAccess is defense in depth.
  */
 import type { JSX } from "react";
 
@@ -11,7 +11,7 @@ import { and, auditLog, desc, eq, outreachCampaigns, solicitations, vendorProspe
 import { Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 import { approveLossNotification, approveOutreach, approveSourcing, rejectOutreach } from "./actions";
 
@@ -25,7 +25,7 @@ interface PendingLossNotification {
 }
 
 export default async function ApprovalsPage(): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
 
   const { triaged, pendingOutreach, pendingLossNotifications } = await withOrg(orgId, async (tx) => {

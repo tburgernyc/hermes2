@@ -3,7 +3,7 @@
  * its milestone schedule, and the drafted (unsigned) SUBCONTRACT_DRAFT document text — a binding legal
  * document to a third party, so it gets the same care as the proposal's counsel-review gate (CLAUDE.md
  * §2/§6): nothing is sent to the vendor and e-signature cannot start until the admin explicitly confirms
- * review (a SEPARATE follow-on action). requireAdmin guards the page; getStorage() needs the Node runtime.
+ * review (a SEPARATE follow-on action). requireCaptureAccess guards the page; getStorage() needs the Node runtime.
  */
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -18,7 +18,7 @@ import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
 import { humanizeStatus } from "@/lib/admin-board";
 import { formatUsd } from "@/lib/portal";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireCaptureAccess } from "@/lib/auth-guard";
 
 import { confirmSubcontractReview, startEsign } from "./actions";
 
@@ -32,7 +32,7 @@ export default async function SubcontractReview({
 }: {
   params: Promise<{ id: string }>;
 }): Promise<JSX.Element> {
-  const session = await requireAdmin();
+  const session = await requireCaptureAccess();
   const orgId = session.user.orgId;
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();

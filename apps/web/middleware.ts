@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 
 import authConfig from "./auth.config";
+import { domainForPath, isAdminDomainAllowed } from "./lib/admin-domains";
 import { buildCsp, generateNonce, isHttpsRequest } from "./lib/security-headers";
 
 // Edge-safe instance: authConfig has no DB/argon2/otplib imports, so this runs in the edge runtime.
@@ -46,7 +47,7 @@ export default auth((req) => {
       login.searchParams.set("callbackUrl", pathname);
       return decorate(NextResponse.redirect(login));
     }
-    const { role, totpVerified, totpEnrolled } = session.user;
+    const { role, totpVerified, totpEnrolled, adminRole } = session.user;
 
     if (pathname.startsWith("/admin")) {
       if (role !== "admin") return decorate(NextResponse.redirect(new URL("/portal", nextUrl)));
@@ -54,6 +55,19 @@ export default auth((req) => {
       if (!pathname.startsWith("/admin/totp")) {
         if (!totpEnrolled) return decorate(NextResponse.redirect(new URL("/admin/totp/enroll", nextUrl)));
         if (!totpVerified) return decorate(NextResponse.redirect(new URL("/admin/totp", nextUrl)));
+        // §3.6 granular admin roles: FULL is unchanged (reaches everything below, exactly as before this
+        // feature shipped). CAPTURE/FINANCE are gated to their own domain — the dashboard and audit log
+        // stay OPEN to every admin level. This is the PRIMARY, server-side enforcement layer (redirect,
+        // never a hidden nav link); requireAdminDomain in each page/action is the second, defense-in-depth
+        // layer for the same decision (lib/admin-domains.ts is the single source both read). Session-claim
+        // based — no DB hit per request; a role change takes effect on the admin's next login or TOTP-
+        // refresh session update (see auth.ts).
+        const domain = domainForPath(pathname);
+        if (!isAdminDomainAllowed(adminRole, domain)) {
+          const denied = new URL("/admin", nextUrl);
+          denied.searchParams.set("denied", domain.toLowerCase());
+          return decorate(NextResponse.redirect(denied));
+        }
       }
     } else if (pathname.startsWith("/portal")) {
       if (role !== "vendor") return decorate(NextResponse.redirect(new URL("/admin", nextUrl)));

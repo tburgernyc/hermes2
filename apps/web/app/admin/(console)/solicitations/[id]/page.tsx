@@ -30,7 +30,14 @@ import { formatUsd } from "@/lib/portal";
 import { requireAdmin } from "@/lib/auth-guard";
 
 import { approveSourcing } from "../../approvals/actions";
-import { markNoGo, recordOutcome, selectQuote, shortlistQuote } from "../actions";
+import {
+  markNoGo,
+  markQuoteUnderReview,
+  recordOutcome,
+  selectQuote,
+  shortlistQuote,
+  withdrawQuote,
+} from "../actions";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -188,6 +195,14 @@ export default async function SolicitationDetail({
                       </div>
                     </div>
                     <div className={c.row}>
+                      {q.status === "SUBMITTED" && (
+                        <form action={markQuoteUnderReview}>
+                          <input type="hidden" name="quoteId" value={q.id} />
+                          <Button type="submit" size="sm" variant="ghost">
+                            Mark under review
+                          </Button>
+                        </form>
+                      )}
                       {(q.status === "SUBMITTED" || q.status === "UNDER_REVIEW") && (
                         <form action={shortlistQuote}>
                           <input type="hidden" name="quoteId" value={q.id} />
@@ -201,6 +216,16 @@ export default async function SolicitationDetail({
                           <input type="hidden" name="quoteId" value={q.id} />
                           <Button type="submit" size="sm">
                             Select winner
+                          </Button>
+                        </form>
+                      )}
+                      {(q.status === "SUBMITTED" ||
+                        q.status === "UNDER_REVIEW" ||
+                        q.status === "SHORTLISTED") && (
+                        <form action={withdrawQuote}>
+                          <input type="hidden" name="quoteId" value={q.id} />
+                          <Button type="submit" size="sm" variant="ghost">
+                            Withdraw
                           </Button>
                         </form>
                       )}

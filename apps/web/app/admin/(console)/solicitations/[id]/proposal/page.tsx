@@ -1,7 +1,8 @@
 /**
  * /admin/solicitations/[id]/proposal — the priced bid decision-brief review surface. Renders the
  * DETERMINISTIC brief drafted by the Inngest workflow (pricing scenarios + compliance + §3 bid checklist)
- * stored on the proposals row, and lets a HUMAN walk it DRAFT → COUNSEL_REVIEW → READY_TO_SUBMIT → submit.
+ * stored on the proposals row, and lets a HUMAN walk it DRAFT → PRICING_REVIEW → COMPLIANCE_REVIEW →
+ * COUNSEL_REVIEW → READY_TO_SUBMIT → submit.
  * All stored JSON is rendered as DATA (JSX autoescapes). The live-submission blockers are shown prominently
  * — they are the no-real-bid proof: on the provisional baseline the submit is structurally blocked
  * (CLAUDE.md §2/§6). Nothing here sends or submits to the government automatically.
@@ -18,7 +19,13 @@ import { Button } from "@/components/ui/Button";
 import { humanizeStatus } from "@/lib/admin-board";
 import { requireAdmin } from "@/lib/auth-guard";
 
-import { counselReviewProposal, markProposalReady, submitProposal } from "./actions";
+import {
+  counselReviewProposal,
+  markComplianceReviewed,
+  markPricingReviewed,
+  markProposalReady,
+  submitProposal,
+} from "./actions";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -195,6 +202,18 @@ export default async function ProposalReview({
 
       <Section title="Review workflow">
         {proposal.status === "DRAFT" && (
+          <form action={markPricingReviewed}>
+            <input type="hidden" name="proposalId" value={proposal.id} />
+            <Button type="submit">Mark pricing reviewed</Button>
+          </form>
+        )}
+        {proposal.status === "PRICING_REVIEW" && (
+          <form action={markComplianceReviewed}>
+            <input type="hidden" name="proposalId" value={proposal.id} />
+            <Button type="submit">Mark compliance reviewed</Button>
+          </form>
+        )}
+        {proposal.status === "COMPLIANCE_REVIEW" && (
           <form action={counselReviewProposal}>
             <input type="hidden" name="proposalId" value={proposal.id} />
             <Button type="submit">Record counsel review</Button>

@@ -100,6 +100,45 @@ export async function markNoGo(formData: FormData): Promise<void> {
   revalidatePath(`/admin/solicitations/${solicitationId}`);
 }
 
+/**
+ * §3.2 baseline audit: mark a freshly-submitted quote as under review (SUBMITTED → UNDER_REVIEW). Closes a
+ * gap found in the audit — shortlistQuote already accepted UNDER_REVIEW as a valid source status (and the
+ * detail page already showed the "Shortlist" action for it), but nothing in the app ever SET it, so the
+ * state was unreachable. Gives the operator an explicit "I'm looking at this one" signal, distinct from
+ * shortlisting, before committing to shortlist/select. Presentational-only status change — advances
+ * nothing else and sends nothing (CLAUDE.md §2).
+ */
+export async function markQuoteUnderReview(formData: FormData): Promise<void> {
+  const session = await requireAdmin();
+  const orgId = session.user.orgId;
+  const userId = session.user.id;
+  const quoteId = readId(formData, "quoteId");
+
+  const solicitationId = await withOrg(orgId, async (tx) => {
+    const rows = await tx
+      .update(vendorQuotes)
+      .set({ status: "UNDER_REVIEW" })
+      .where(
+        and(eq(vendorQuotes.orgId, orgId), eq(vendorQuotes.id, quoteId), eq(vendorQuotes.status, "SUBMITTED")),
+      )
+      .returning({ id: vendorQuotes.id, solicitationId: vendorQuotes.solicitationId });
+    const row = rows[0];
+    if (!row) return null;
+    await writeAudit(tx, {
+      orgId,
+      actorType: "ADMIN",
+      actorUserId: userId,
+      actorEmail: session.user.email ?? null,
+      action: "QUOTE_UNDER_REVIEW",
+      entityType: "vendor_quotes",
+      entityId: quoteId,
+    });
+    return row.solicitationId;
+  });
+
+  if (solicitationId) revalidatePath(`/admin/solicitations/${solicitationId}`);
+}
+
 /** Shortlist a submitted quote for closer review (SUBMITTED/UNDER_REVIEW → SHORTLISTED). */
 export async function shortlistQuote(formData: FormData): Promise<void> {
   const session = await requireAdmin();
@@ -298,6 +337,51 @@ export async function selectQuote(formData: FormData): Promise<void> {
     }
     revalidatePath(`/admin/solicitations/${solicitationId}`);
   }
+}
+
+/**
+ * §3.2 baseline audit: withdraw a quote on the subcontractor's behalf (SUBMITTED/UNDER_REVIEW/SHORTLISTED
+ * → WITHDRAWN, terminal). Closes a gap: quote_status WITHDRAWN had no writer anywhere — the vendor_quotes
+ * table is deliberately INSERT-only for the vendor role (migration 0011: "a submitted quote is immutable
+ * from the vendor's side"), so a subcontractor who wants to withdraw (e.g. calls/emails the firm directly)
+ * has no self-service path; the admin records it for them. This is a human (admin) decision recording
+ * another human's (the sub's) request — never inferred, never automatic. The one-active-quote partial
+ * unique index (migration 0011) already anticipates WITHDRAWN as a non-active terminal state that frees the
+ * (org, solicitation, vendor) slot for a resubmission.
+ */
+export async function withdrawQuote(formData: FormData): Promise<void> {
+  const session = await requireAdmin();
+  const orgId = session.user.orgId;
+  const userId = session.user.id;
+  const quoteId = readId(formData, "quoteId");
+
+  const solicitationId = await withOrg(orgId, async (tx) => {
+    const rows = await tx
+      .update(vendorQuotes)
+      .set({ status: "WITHDRAWN" })
+      .where(
+        and(
+          eq(vendorQuotes.orgId, orgId),
+          eq(vendorQuotes.id, quoteId),
+          inArray(vendorQuotes.status, ["SUBMITTED", "UNDER_REVIEW", "SHORTLISTED"]),
+        ),
+      )
+      .returning({ id: vendorQuotes.id, solicitationId: vendorQuotes.solicitationId });
+    const row = rows[0];
+    if (!row) return null;
+    await writeAudit(tx, {
+      orgId,
+      actorType: "ADMIN",
+      actorUserId: userId,
+      actorEmail: session.user.email ?? null,
+      action: "QUOTE_WITHDRAWN",
+      entityType: "vendor_quotes",
+      entityId: quoteId,
+    });
+    return row.solicitationId;
+  });
+
+  if (solicitationId) revalidatePath(`/admin/solicitations/${solicitationId}`);
 }
 
 /**

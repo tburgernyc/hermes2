@@ -2,7 +2,9 @@
 
 /**
  * Proposal review gates for the operator console. The drafting workflow (Inngest) produces a DRAFT
- * proposal; a HUMAN walks it through DRAFT → COUNSEL_REVIEW → READY_TO_SUBMIT → SUBMITTED here. Every
+ * proposal; a HUMAN walks it through DRAFT → PRICING_REVIEW → COMPLIANCE_REVIEW → COUNSEL_REVIEW →
+ * READY_TO_SUBMIT → SUBMITTED here (the middle two stages closed a §3.2 baseline-audit gap — they used to
+ * be skipped entirely). Every
  * action is behind requireAdmin (role + satisfied TOTP), runs in an org-scoped transaction, appends an
  * ADMIN audit row, and emits NO events and performs NO outbound work (CLAUDE.md §2). The final submit is
  * STRUCTURALLY blocked by readyForLiveSubmission for as long as the firm runs on the provisional baseline
@@ -15,6 +17,7 @@ import {
   and,
   eq,
   hasUnconfirmedCounselThresholds,
+  inArray,
   orgs,
   parseDirectives,
   proposals,
@@ -23,6 +26,11 @@ import {
 import { readyForLiveSubmission } from "@hermes/ai";
 import { writeAudit } from "@hermes/inngest";
 
+import {
+  COMPLIANCE_REVIEWABLE_PROPOSAL_STATUSES,
+  COUNSEL_REVIEWABLE_PROPOSAL_STATUSES,
+  PRICING_REVIEWABLE_PROPOSAL_STATUSES,
+} from "@/lib/admin-board";
 import { requireAdmin } from "@/lib/auth-guard";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -37,7 +45,84 @@ function revalidateProposal(solicitationId: string | null): void {
   if (solicitationId) revalidatePath(`/admin/solicitations/${solicitationId}/proposal`);
 }
 
-/** Record that counsel has reviewed the draft (DRAFT → COUNSEL_REVIEW). A human decision; no outbound. */
+/**
+ * §3.2 baseline audit: proposal_status PRICING_REVIEW/COMPLIANCE_REVIEW had no writer — the live ladder
+ * skipped straight from DRAFT to COUNSEL_REVIEW. Extends the ladder (strictly additive, never removes a
+ * reachable state): DRAFT → PRICING_REVIEW → COMPLIANCE_REVIEW → COUNSEL_REVIEW → READY_TO_SUBMIT →
+ * SUBMITTED. A human decision; no outbound.
+ */
+export async function markPricingReviewed(formData: FormData): Promise<void> {
+  const session = await requireAdmin();
+  const orgId = session.user.orgId;
+  const userId = session.user.id;
+  const proposalId = readId(formData, "proposalId");
+
+  const solicitationId = await withOrg(orgId, async (tx) => {
+    const rows = await tx
+      .update(proposals)
+      .set({ status: "PRICING_REVIEW" })
+      .where(
+        and(
+          eq(proposals.orgId, orgId),
+          eq(proposals.id, proposalId),
+          inArray(proposals.status, [...PRICING_REVIEWABLE_PROPOSAL_STATUSES]),
+        ),
+      )
+      .returning({ solicitationId: proposals.solicitationId });
+    const row = rows[0];
+    if (!row) return null;
+    await writeAudit(tx, {
+      orgId,
+      actorType: "ADMIN",
+      actorUserId: userId,
+      actorEmail: session.user.email ?? null,
+      action: "PROPOSAL_PRICING_REVIEWED",
+      entityType: "proposals",
+      entityId: proposalId,
+    });
+    return row.solicitationId;
+  });
+
+  revalidateProposal(solicitationId);
+}
+
+/** Record that pricing-reviewed draft has also cleared compliance review (PRICING_REVIEW → COMPLIANCE_REVIEW). */
+export async function markComplianceReviewed(formData: FormData): Promise<void> {
+  const session = await requireAdmin();
+  const orgId = session.user.orgId;
+  const userId = session.user.id;
+  const proposalId = readId(formData, "proposalId");
+
+  const solicitationId = await withOrg(orgId, async (tx) => {
+    const rows = await tx
+      .update(proposals)
+      .set({ status: "COMPLIANCE_REVIEW" })
+      .where(
+        and(
+          eq(proposals.orgId, orgId),
+          eq(proposals.id, proposalId),
+          inArray(proposals.status, [...COMPLIANCE_REVIEWABLE_PROPOSAL_STATUSES]),
+        ),
+      )
+      .returning({ solicitationId: proposals.solicitationId });
+    const row = rows[0];
+    if (!row) return null;
+    await writeAudit(tx, {
+      orgId,
+      actorType: "ADMIN",
+      actorUserId: userId,
+      actorEmail: session.user.email ?? null,
+      action: "PROPOSAL_COMPLIANCE_REVIEWED",
+      entityType: "proposals",
+      entityId: proposalId,
+    });
+    return row.solicitationId;
+  });
+
+  revalidateProposal(solicitationId);
+}
+
+/** Record that counsel has reviewed the draft (COMPLIANCE_REVIEW → COUNSEL_REVIEW). A human decision; no outbound. */
 export async function counselReviewProposal(formData: FormData): Promise<void> {
   const session = await requireAdmin();
   const orgId = session.user.orgId;
@@ -49,7 +134,11 @@ export async function counselReviewProposal(formData: FormData): Promise<void> {
       .update(proposals)
       .set({ status: "COUNSEL_REVIEW", counselReviewedBy: userId, counselReviewedAt: new Date() })
       .where(
-        and(eq(proposals.orgId, orgId), eq(proposals.id, proposalId), eq(proposals.status, "DRAFT")),
+        and(
+          eq(proposals.orgId, orgId),
+          eq(proposals.id, proposalId),
+          inArray(proposals.status, [...COUNSEL_REVIEWABLE_PROPOSAL_STATUSES]),
+        ),
       )
       .returning({ solicitationId: proposals.solicitationId });
     const row = rows[0];

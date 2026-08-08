@@ -21,6 +21,7 @@ import {
   outreachCampaigns,
   proposals,
   solicitations,
+  vendorProspects,
   vendorQuotes,
   type Tx,
 } from "@hermes/db";
@@ -228,6 +229,11 @@ d("sendOutreach (the gate, in code)", () => {
       const [sol] = await tx.select().from(solicitations).where(eq(solicitations.id, solId));
       expect(sol!.status).toBe("SOURCING_IN_PROGRESS");
 
+      // §3.2 baseline audit: a successful send advances the prospect NEW → CONTACTED (previously an
+      // unreachable prospect_status value — nothing ever set it).
+      const [prospect] = await tx.select().from(vendorProspects).where(eq(vendorProspects.id, pid));
+      expect(prospect!.status).toBe("CONTACTED");
+
       const audits = await tx
         .select()
         .from(auditLog)
@@ -235,6 +241,33 @@ d("sendOutreach (the gate, in code)", () => {
       expect(audits).toHaveLength(1);
       expect(audits[0]!.actorType).toBe("ADMIN");
       expect(audits[0]!.actorUserId).toBe(userId);
+    }));
+
+  it("does not regress a prospect that already progressed past CONTACTED", () =>
+    withRollbackTx(async (tx) => {
+      const { deps } = makeDeps();
+      const orgId = await insertOrg(tx);
+      const userId = await insertUser(tx, orgId, { role: "ADMIN" });
+      const solId = await insertSolicitation(tx, orgId, {
+        status: "AWAITING_APPROVAL",
+        sourcingApprovedBy: userId,
+      });
+      const pid = await insertProspect(tx, orgId, {
+        contactEmail: "p2@example.test",
+        status: "QUALIFIED",
+      });
+      const outreachId = await insertOutreach(tx, orgId, {
+        solicitationId: solId,
+        prospectId: pid,
+        status: "APPROVED",
+        approvedBy: userId,
+      });
+
+      const result = await sendOutreach(tx, deps, { orgId, outreachId, approvedBy: userId });
+      expect(result.status).toBe("SENT");
+
+      const [prospect] = await tx.select().from(vendorProspects).where(eq(vendorProspects.id, pid));
+      expect(prospect!.status).toBe("QUALIFIED"); // unchanged — a second campaign never demotes it
     }));
 });
 

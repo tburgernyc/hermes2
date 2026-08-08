@@ -268,6 +268,81 @@ test("admin shortlists then selects a winning quote — select records the choic
   }
 });
 
+// §3.2 baseline audit: UNDER_REVIEW was a quoteStatus enum value with no human-facing affordance to reach
+// it (shortlistQuote already ACCEPTED it as a valid source status, but nothing ever SET it). Proves the new
+// markQuoteUnderReview action closes that gap, and that shortlistQuote's existing UNDER_REVIEW branch
+// (previously untested from this direction) still lands on SHORTLISTED.
+test("admin marks a submitted quote under review, then shortlists it from there", async ({ page }) => {
+  const db = pool();
+  try {
+    const oid = await orgId(db);
+    const adminId = await adminUserId(db, oid);
+    const sol = await db.query<{ id: string }>(
+      `INSERT INTO solicitations
+         (org_id, notice_id, title, contract_type, status, sourcing_approved_by, sourcing_approved_at)
+       VALUES ($1, $2, $3, 'FFP'::contract_type, 'PRICING_PENDING'::solicitation_status, $4, now())
+       RETURNING id`,
+      [oid, `E2E-${randomUUID()}`, `Under Review Solicitation ${randomUUID()}`, adminId],
+    );
+    const solId = sol.rows[0]!.id;
+    const prospect = await db.query<{ id: string }>(
+      `INSERT INTO vendor_prospects (org_id, company_name, contact_email)
+       VALUES ($1, 'Under Review Sub Co', $2) RETURNING id`,
+      [oid, `sub-${randomUUID()}@e2e.test`],
+    );
+    const prospectId = prospect.rows[0]!.id;
+    const quote = await db.query<{ id: string }>(
+      `INSERT INTO vendor_quotes
+         (org_id, solicitation_id, prospect_id, status, total_price, ai_rank, ai_rationale, evaluated_at)
+       VALUES ($1, $2, $3, 'SUBMITTED'::quote_status, 50000, 1, 'Under review test', now())
+       RETURNING id`,
+      [oid, solId, prospectId],
+    );
+    const quoteId = quote.rows[0]!.id;
+
+    await loginAdmin(page);
+    await page.goto(`/admin/solicitations/${solId}`);
+    await expect(page.getByTestId(`quote-${quoteId}`)).toContainText("Under Review Sub Co");
+
+    // SUBMITTED → UNDER_REVIEW (the gap this PR closes).
+    await page.getByRole("button", { name: "Mark under review" }).click();
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(
+          `SELECT status FROM vendor_quotes WHERE id = $1`,
+          [quoteId],
+        );
+        return r.rows[0]?.status;
+      })
+      .toBe("UNDER_REVIEW");
+
+    // The "Mark under review" affordance disappears once already under review (no re-trigger)…
+    await expect(page.getByRole("button", { name: "Mark under review" })).toHaveCount(0);
+    // …but Shortlist is still offered, and accepts UNDER_REVIEW as a source (SUBMITTED/UNDER_REVIEW → SHORTLISTED).
+    await page.getByRole("button", { name: "Shortlist" }).click();
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(
+          `SELECT status FROM vendor_quotes WHERE id = $1`,
+          [quoteId],
+        );
+        return r.rows[0]?.status;
+      })
+      .toBe("SHORTLISTED");
+
+    const audits = await db.query<{ action: string }>(
+      `SELECT action FROM audit_log
+       WHERE org_id = $1 AND actor_type = 'ADMIN' AND entity_id = $2 ORDER BY action`,
+      [oid, quoteId],
+    );
+    const actions = audits.rows.map((r) => r.action);
+    expect(actions).toContain("QUOTE_UNDER_REVIEW");
+    expect(actions).toContain("QUOTE_SHORTLISTED");
+  } finally {
+    await db.end();
+  }
+});
+
 test("admin manually adds a prospect, then marks it qualified", async ({ page }) => {
   const db = pool();
   try {
@@ -316,6 +391,202 @@ test("admin manually adds a prospect, then marks it qualified", async ({ page })
         return r.rows[0]?.status;
       })
       .toBe("QUALIFIED");
+  } finally {
+    await db.end();
+  }
+});
+
+// §3.2 baseline audit: prospect_status RESPONDED and DECLINED were defined enum values with no writer
+// anywhere — a reply logged by the admin (outside the system) or an explicit "not interested" had no way
+// to be recorded. Proves the new markProspectResponded/markProspectDeclined actions close both gaps.
+test("admin logs a prospect response, then declines it — both terminal-adjacent states are reachable", async ({
+  page,
+}) => {
+  const db = pool();
+  try {
+    const oid = await orgId(db);
+    const prospect = await db.query<{ id: string }>(
+      `INSERT INTO vendor_prospects (org_id, company_name, contact_email, status)
+       VALUES ($1, 'Responded Sub Co', $2, 'CONTACTED'::prospect_status) RETURNING id`,
+      [oid, `responded-${randomUUID()}@e2e.test`],
+    );
+    const prospectId = prospect.rows[0]!.id;
+
+    await loginAdmin(page);
+    await page.goto("/admin/prospects");
+    const card = page.getByTestId(`prospect-${prospectId}`);
+    await expect(card).toContainText("Responded Sub Co");
+
+    // CONTACTED → RESPONDED (the gap this PR closes).
+    await card.getByRole("button", { name: "Log response" }).click();
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(
+          `SELECT status FROM vendor_prospects WHERE id = $1`,
+          [prospectId],
+        );
+        return r.rows[0]?.status;
+      })
+      .toBe("RESPONDED");
+    // "Log response" is one-shot — it disappears once already responded.
+    await expect(page.getByTestId(`prospect-${prospectId}`).getByRole("button", { name: "Log response" })).toHaveCount(0);
+
+    // RESPONDED → DECLINED (the second gap this PR closes) — still reachable, mirrors "Mark qualified".
+    await page.getByTestId(`prospect-${prospectId}`).getByRole("button", { name: "Decline" }).click();
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(
+          `SELECT status FROM vendor_prospects WHERE id = $1`,
+          [prospectId],
+        );
+        return r.rows[0]?.status;
+      })
+      .toBe("DECLINED");
+    // Terminal — no more action buttons on a declined prospect.
+    const declinedCard = page.getByTestId(`prospect-${prospectId}`);
+    await expect(declinedCard.getByRole("button", { name: "Mark qualified" })).toHaveCount(0);
+    await expect(declinedCard.getByRole("button", { name: "Decline" })).toHaveCount(0);
+
+    const audits = await db.query<{ action: string }>(
+      `SELECT action FROM audit_log
+       WHERE org_id = $1 AND actor_type = 'ADMIN' AND entity_id = $2 ORDER BY action`,
+      [oid, prospectId],
+    );
+    const actions = audits.rows.map((r) => r.action);
+    expect(actions).toContain("PROSPECT_RESPONDED");
+    expect(actions).toContain("PROSPECT_DECLINED");
+  } finally {
+    await db.end();
+  }
+});
+
+// §3.2 baseline audit: quote_status WITHDRAWN was a defined enum value with no writer anywhere — a
+// subcontractor withdrawing (vendor_quotes is deliberately INSERT-only for the vendor role, migration
+// 0011) had no way to have that recorded. Proves the new withdrawQuote admin action closes the gap.
+test("admin withdraws a submitted quote on the subcontractor's behalf", async ({ page }) => {
+  const db = pool();
+  try {
+    const oid = await orgId(db);
+    const adminId = await adminUserId(db, oid);
+    const sol = await db.query<{ id: string }>(
+      `INSERT INTO solicitations
+         (org_id, notice_id, title, contract_type, status, sourcing_approved_by, sourcing_approved_at)
+       VALUES ($1, $2, $3, 'FFP'::contract_type, 'PRICING_PENDING'::solicitation_status, $4, now())
+       RETURNING id`,
+      [oid, `E2E-${randomUUID()}`, `Withdraw Quote Solicitation ${randomUUID()}`, adminId],
+    );
+    const solId = sol.rows[0]!.id;
+    const prospect = await db.query<{ id: string }>(
+      `INSERT INTO vendor_prospects (org_id, company_name, contact_email)
+       VALUES ($1, 'Withdraw Sub Co', $2) RETURNING id`,
+      [oid, `withdraw-${randomUUID()}@e2e.test`],
+    );
+    const prospectId = prospect.rows[0]!.id;
+    const quote = await db.query<{ id: string }>(
+      `INSERT INTO vendor_quotes
+         (org_id, solicitation_id, prospect_id, status, total_price, ai_rank, ai_rationale, evaluated_at)
+       VALUES ($1, $2, $3, 'SUBMITTED'::quote_status, 42000, 1, 'Withdraw test', now())
+       RETURNING id`,
+      [oid, solId, prospectId],
+    );
+    const quoteId = quote.rows[0]!.id;
+
+    await loginAdmin(page);
+    await page.goto(`/admin/solicitations/${solId}`);
+    await expect(page.getByTestId(`quote-${quoteId}`)).toContainText("Withdraw Sub Co");
+
+    await page.getByRole("button", { name: "Withdraw" }).click();
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(
+          `SELECT status FROM vendor_quotes WHERE id = $1`,
+          [quoteId],
+        );
+        return r.rows[0]?.status;
+      })
+      .toBe("WITHDRAWN");
+
+    // Terminal — no more decision buttons on a withdrawn quote.
+    const quoteCard = page.getByTestId(`quote-${quoteId}`);
+    await expect(quoteCard.getByRole("button", { name: "Withdraw" })).toHaveCount(0);
+    await expect(quoteCard.getByRole("button", { name: "Shortlist" })).toHaveCount(0);
+    await expect(quoteCard.getByRole("button", { name: "Mark under review" })).toHaveCount(0);
+
+    const audit = await db.query(
+      `SELECT 1 FROM audit_log
+       WHERE org_id = $1 AND actor_type = 'ADMIN' AND action = 'QUOTE_WITHDRAWN' AND entity_id = $2`,
+      [oid, quoteId],
+    );
+    expect(audit.rowCount).toBe(1);
+  } finally {
+    await db.end();
+  }
+});
+
+// §3.2 baseline audit: outreach_status BOUNCED had no writer — no bounce ingestion exists. The operator
+// sees a bounce as a delivery-failure notice in their own inbox and records it on /admin/prospects; proves
+// the new recordOutreachBounced action closes the gap and sends nothing (a status flip + audit row only).
+test("admin records a bounced outreach send from the prospects page", async ({ page }) => {
+  const db = pool();
+  try {
+    const oid = await orgId(db);
+    const sol = await db.query<{ id: string }>(
+      `INSERT INTO solicitations (org_id, notice_id, title, contract_type, status)
+       VALUES ($1, $2, $3, 'FFP'::contract_type, 'SOURCING_IN_PROGRESS'::solicitation_status)
+       RETURNING id`,
+      [oid, `E2E-${randomUUID()}`, `Bounce Solicitation ${randomUUID()}`],
+    );
+    const solId = sol.rows[0]!.id;
+    const contactEmail = `bounced-${randomUUID()}@e2e.test`;
+    const prospect = await db.query<{ id: string }>(
+      `INSERT INTO vendor_prospects (org_id, company_name, contact_email)
+       VALUES ($1, 'Bounced Recipient Co', $2) RETURNING id`,
+      [oid, contactEmail],
+    );
+    const prospectId = prospect.rows[0]!.id;
+    const adminId = await adminUserId(db, oid);
+    const outreach = await db.query<{ id: string }>(
+      `INSERT INTO outreach_campaigns
+         (org_id, solicitation_id, prospect_id, step, status, subject, body, approved_by, approved_at, sent_at)
+       VALUES ($1, $2, $3, 'DAY_0'::outreach_step, 'SENT'::outreach_status, $4, 'Body text.', $5, now(), now())
+       RETURNING id`,
+      [oid, solId, prospectId, `Bounce subject ${randomUUID()}`, adminId],
+    );
+    const outreachId = outreach.rows[0]!.id;
+
+    await loginAdmin(page);
+    await page.goto("/admin/prospects");
+    const card = page.getByTestId(`sent-outreach-${outreachId}`);
+    await expect(card).toContainText(contactEmail);
+    await card.getByRole("button", { name: "Record bounce" }).click();
+
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(
+          `SELECT status FROM outreach_campaigns WHERE id = $1`,
+          [outreachId],
+        );
+        return r.rows[0]?.status;
+      })
+      .toBe("BOUNCED");
+
+    const audit = await db.query(
+      `SELECT 1 FROM audit_log
+       WHERE org_id = $1 AND actor_type = 'ADMIN' AND action = 'OUTREACH_BOUNCED' AND entity_id = $2`,
+      [oid, outreachId],
+    );
+    expect(audit.rowCount).toBe(1);
+
+    // Recording a bounce sends nothing — no new audit row claims a send/approval for this campaign.
+    const noSend = await db.query(
+      `SELECT 1 FROM audit_log WHERE org_id = $1 AND entity_id = $2 AND action ILIKE '%SENT%'`,
+      [oid, outreachId],
+    );
+    expect(noSend.rowCount).toBe(0);
+
+    // The bounced card no longer appears in the "record a bounce" list (BOUNCED is no longer SENT).
+    await page.goto("/admin/prospects");
+    await expect(page.getByTestId(`sent-outreach-${outreachId}`)).toHaveCount(0);
   } finally {
     await db.end();
   }

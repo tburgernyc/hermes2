@@ -12,10 +12,21 @@ import { Badge, Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
-import { humanizeStatus, isQualifiableProspectStatus } from "@/lib/admin-board";
+import {
+  humanizeStatus,
+  isDeclinableProspectStatus,
+  isQualifiableProspectStatus,
+  isRespondableProspectStatus,
+} from "@/lib/admin-board";
 import { requireAdmin } from "@/lib/auth-guard";
 
-import { addProspect, markProspectQualified } from "./actions";
+import {
+  addProspect,
+  markProspectDeclined,
+  markProspectQualified,
+  markProspectResponded,
+  recordOutreachBounced,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +34,7 @@ export default async function ProspectsPage(): Promise<JSX.Element> {
   const session = await requireAdmin();
   const orgId = session.user.orgId;
 
-  const { prospects, pendingOutreach } = await withOrg(orgId, async (tx) => {
+  const { prospects, pendingOutreach, sentOutreach } = await withOrg(orgId, async (tx) => {
     const prospects = await tx
       .select({
         id: vendorProspects.id,
@@ -43,7 +54,26 @@ export default async function ProspectsPage(): Promise<JSX.Element> {
       .from(outreachCampaigns)
       .where(and(eq(outreachCampaigns.orgId, orgId), eq(outreachCampaigns.status, "PENDING_APPROVAL")));
 
-    return { prospects, pendingOutreach: pendingOutreach?.n ?? 0 };
+    // §3.2 baseline audit: outreach_status BOUNCED had no writer. Surface SENT campaigns here so the
+    // operator — who sees the bounce as a delivery-failure notice in their OWN inbox — can record it.
+    const sentOutreach = await tx
+      .select({
+        id: outreachCampaigns.id,
+        subject: outreachCampaigns.subject,
+        sentAt: outreachCampaigns.sentAt,
+        prospectCompanyName: vendorProspects.companyName,
+        prospectContactEmail: vendorProspects.contactEmail,
+      })
+      .from(outreachCampaigns)
+      .innerJoin(
+        vendorProspects,
+        and(eq(vendorProspects.orgId, outreachCampaigns.orgId), eq(vendorProspects.id, outreachCampaigns.prospectId)),
+      )
+      .where(and(eq(outreachCampaigns.orgId, orgId), eq(outreachCampaigns.status, "SENT")))
+      .orderBy(desc(outreachCampaigns.sentAt))
+      .limit(50);
+
+    return { prospects, pendingOutreach: pendingOutreach?.n ?? 0, sentOutreach };
   });
 
   return (
@@ -73,6 +103,40 @@ export default async function ProspectsPage(): Promise<JSX.Element> {
         </Card>
       </Section>
 
+      <Section title="Sent outreach — record delivery issues" count={sentOutreach.length}>
+        <p className={c.meta}>
+          You will see a bounce as a delivery-failure notice in your own inbox — record it here so the
+          campaign&apos;s status reflects it. This never sends anything; automated bounce ingestion (a
+          Resend webhook) is future work.
+        </p>
+        {sentOutreach.length === 0 ? (
+          <p className={c.empty}>None.</p>
+        ) : (
+          <ul className={c.list}>
+            {sentOutreach.map((o) => (
+              <Card as="li" key={o.id} size="sm" testId={`sent-outreach-${o.id}`}>
+                <div className={c.rowBetween}>
+                  <div>
+                    <strong>{o.subject}</strong>
+                    <div className={c.meta}>
+                      To: {o.prospectCompanyName}
+                      {o.prospectContactEmail ? ` <${o.prospectContactEmail}>` : ""}
+                      {o.sentAt ? ` · sent ${o.sentAt.toISOString()}` : ""}
+                    </div>
+                  </div>
+                  <form action={recordOutreachBounced}>
+                    <input type="hidden" name="outreachId" value={o.id} />
+                    <Button type="submit" size="sm" variant="ghost">
+                      Record bounce
+                    </Button>
+                  </form>
+                </div>
+              </Card>
+            ))}
+          </ul>
+        )}
+      </Section>
+
       <Section title="All prospects" count={prospects.length}>
         {prospects.length === 0 ? (
           <p className={c.empty}>None.</p>
@@ -89,14 +153,32 @@ export default async function ProspectsPage(): Promise<JSX.Element> {
                       <Badge tone="neutral">{humanizeStatus(p.prospectSource)}</Badge>
                     </div>
                   </div>
-                  {isQualifiableProspectStatus(p.status) && (
-                    <form action={markProspectQualified}>
-                      <input type="hidden" name="prospectId" value={p.id} />
-                      <Button type="submit" size="sm" variant="secondary">
-                        Mark qualified
-                      </Button>
-                    </form>
-                  )}
+                  <div className={c.row}>
+                    {isRespondableProspectStatus(p.status) && (
+                      <form action={markProspectResponded}>
+                        <input type="hidden" name="prospectId" value={p.id} />
+                        <Button type="submit" size="sm" variant="ghost">
+                          Log response
+                        </Button>
+                      </form>
+                    )}
+                    {isQualifiableProspectStatus(p.status) && (
+                      <form action={markProspectQualified}>
+                        <input type="hidden" name="prospectId" value={p.id} />
+                        <Button type="submit" size="sm" variant="secondary">
+                          Mark qualified
+                        </Button>
+                      </form>
+                    )}
+                    {isDeclinableProspectStatus(p.status) && (
+                      <form action={markProspectDeclined}>
+                        <input type="hidden" name="prospectId" value={p.id} />
+                        <Button type="submit" size="sm" variant="ghost">
+                          Decline
+                        </Button>
+                      </form>
+                    )}
+                  </div>
                 </div>
               </Card>
             ))}

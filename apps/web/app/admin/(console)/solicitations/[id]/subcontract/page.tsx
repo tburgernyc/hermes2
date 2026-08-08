@@ -16,11 +16,33 @@ import fieldStyles from "@/components/ui/Field.module.css";
 import { Badge, Card, PageHeader, Section } from "@/components/ui/console";
 import c from "@/components/ui/console.module.css";
 import { Button } from "@/components/ui/Button";
-import { humanizeStatus } from "@/lib/admin-board";
+import {
+  humanizeStatus,
+  isActivatableContractStatus,
+  isCloseoutableContractStatus,
+  isCompletableContractStatus,
+  isCompletableMilestoneStatus,
+  isEsignResolvableStatus,
+  isEsignStartableStatus,
+  isStartableMilestoneStatus,
+  isTerminatableContractStatus,
+} from "@/lib/admin-board";
 import { formatUsd } from "@/lib/portal";
 import { requireAdmin } from "@/lib/auth-guard";
 
-import { confirmSubcontractReview, startEsign } from "./actions";
+import {
+  activateContract,
+  closeOutContract,
+  completeContract,
+  completeMilestone,
+  confirmSubcontractReview,
+  recordEsignDeclined,
+  recordEsignExpired,
+  recordEsignSigned,
+  startEsign,
+  startMilestone,
+  terminateContract,
+} from "./actions";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -86,7 +108,12 @@ export default async function SubcontractReview({
   }
 
   const reviewed = Boolean(contract.agreementReviewedBy);
-  const canStartEsign = reviewed && contract.esignStatus === "NOT_STARTED";
+  const canStartEsign = reviewed && isEsignStartableStatus(contract.esignStatus);
+  const canResolveEsign = isEsignResolvableStatus(contract.esignStatus);
+  const canActivate = isActivatableContractStatus(contract.status) && contract.esignStatus === "SIGNED";
+  const canComplete = isCompletableContractStatus(contract.status);
+  const canTerminate = isTerminatableContractStatus(contract.status);
+  const canCloseOut = isCloseoutableContractStatus(contract.status);
 
   return (
     <main>
@@ -121,7 +148,57 @@ export default async function SubcontractReview({
                 {reviewed ? `Confirmed ${contract.agreementReviewedAt?.toISOString() ?? ""}` : "Not yet reviewed"}
               </span>
             </li>
+            <li className={c.rowBetween}>
+              <span className={c.meta}>Contract status</span>
+              <span data-testid="contract-status">
+                <Badge tone={contract.status === "TERMINATED" ? "danger" : "info"}>
+                  {humanizeStatus(contract.status)}
+                </Badge>
+              </span>
+            </li>
           </ul>
+          {(canActivate || canComplete || canTerminate || canCloseOut) && (
+            <div className={c.row}>
+              {canActivate && (
+                <form action={activateContract}>
+                  <input type="hidden" name="contractId" value={contract.id} />
+                  <Button type="submit" size="sm" data-testid="activate-contract-button">
+                    Activate contract
+                  </Button>
+                </form>
+              )}
+              {canComplete && (
+                <form action={completeContract}>
+                  <input type="hidden" name="contractId" value={contract.id} />
+                  <Button type="submit" size="sm">
+                    Mark completed
+                  </Button>
+                </form>
+              )}
+              {canCloseOut && (
+                <form action={closeOutContract}>
+                  <input type="hidden" name="contractId" value={contract.id} />
+                  <Button type="submit" size="sm" variant="secondary">
+                    Close out
+                  </Button>
+                </form>
+              )}
+              {canTerminate && (
+                <form action={terminateContract}>
+                  <input type="hidden" name="contractId" value={contract.id} />
+                  <Button type="submit" size="sm" variant="danger" data-testid="terminate-contract-button">
+                    Terminate
+                  </Button>
+                </form>
+              )}
+            </div>
+          )}
+          {isActivatableContractStatus(contract.status) && !canActivate && (
+            <p className={c.meta}>
+              This contract cannot be activated yet — e-signature must be recorded as SIGNED first (see the
+              E-signature section below).
+            </p>
+          )}
         </Card>
       </Section>
 
@@ -129,28 +206,53 @@ export default async function SubcontractReview({
         {milestones.length === 0 ? (
           <p className={c.empty}>No milestones.</p>
         ) : (
-          <div className={c.tableWrap}>
-            <table className={c.table} data-testid="milestones-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Description</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {milestones.map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.sequence}</td>
-                    <td>{m.description}</td>
-                    <td>{formatUsd(m.amount)}</td>
-                    <td>{humanizeStatus(m.status)}</td>
+          <>
+            <div className={c.tableWrap}>
+              <table className={c.table} data-testid="milestones-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Description</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {milestones.map((m) => (
+                    <tr key={m.id} data-testid={`milestone-${m.id}`}>
+                      <td>{m.sequence}</td>
+                      <td>{m.description}</td>
+                      <td>{formatUsd(m.amount)}</td>
+                      <td>{humanizeStatus(m.status)}</td>
+                      <td>
+                        {isStartableMilestoneStatus(m.status) && (
+                          <form action={startMilestone}>
+                            <input type="hidden" name="milestoneId" value={m.id} />
+                            <Button type="submit" size="sm" variant="ghost">
+                              Start
+                            </Button>
+                          </form>
+                        )}
+                        {isCompletableMilestoneStatus(m.status) && (
+                          <form action={completeMilestone}>
+                            <input type="hidden" name="milestoneId" value={m.id} />
+                            <Button type="submit" size="sm">
+                              Complete
+                            </Button>
+                          </form>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className={c.meta}>
+              Invoicing and payment (INVOICED / PAID) are driven by the §3.3 accounts-receivable flow, not
+              this page — a milestone&apos;s invoice/payment state is tracked there once that flow is wired.
+            </p>
+          </>
         )}
       </Section>
 
@@ -207,20 +309,53 @@ export default async function SubcontractReview({
               {humanizeStatus(contract.esignStatus)}
             </Badge>
           </p>
-          {canStartEsign ? (
-            <form action={startEsign}>
-              <input type="hidden" name="contractId" value={contract.id} />
-              <Button type="submit" data-testid="start-esign-button">
-                Start e-signature
-              </Button>
-            </form>
-          ) : !reviewed ? (
+          {!reviewed ? (
             <p className={c.meta}>Confirm review above before e-signature can start.</p>
           ) : (
-            <p className={c.meta}>
-              E-signature has already started. (Stub — the real e-signature vendor integration is a later
-              phase, §7.3.)
-            </p>
+            <>
+              {canStartEsign && (
+                <form action={startEsign}>
+                  <input type="hidden" name="contractId" value={contract.id} />
+                  <Button type="submit" data-testid="start-esign-button">
+                    {contract.esignStatus === "NOT_STARTED" ? "Start e-signature" : "Resend e-signature"}
+                  </Button>
+                </form>
+              )}
+              {canResolveEsign && (
+                <>
+                  <p className={c.meta}>
+                    No e-signature vendor integration exists yet (stub, §7.3) — these buttons record an
+                    EXTERNAL fact you observed (a countersigned agreement came back, it lapsed, or the
+                    vendor declined). Nothing is sent from here.
+                  </p>
+                  <div className={c.row}>
+                    <form action={recordEsignSigned}>
+                      <input type="hidden" name="contractId" value={contract.id} />
+                      <Button type="submit" size="sm" data-testid="record-esign-signed-button">
+                        Record signed
+                      </Button>
+                    </form>
+                    <form action={recordEsignExpired}>
+                      <input type="hidden" name="contractId" value={contract.id} />
+                      <Button type="submit" size="sm" variant="ghost">
+                        Record expired
+                      </Button>
+                    </form>
+                    <form action={recordEsignDeclined}>
+                      <input type="hidden" name="contractId" value={contract.id} />
+                      <Button type="submit" size="sm" variant="ghost">
+                        Record declined
+                      </Button>
+                    </form>
+                  </div>
+                </>
+              )}
+              {contract.esignStatus === "SIGNED" && (
+                <p className={c.meta}>
+                  Signed. See &quot;Activate contract&quot; in the contract summary above.
+                </p>
+              )}
+            </>
           )}
         </Card>
       </Section>

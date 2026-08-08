@@ -132,7 +132,7 @@ test("renders the deterministic brief: scenarios, compliance, bid checklist, and
   }
 });
 
-test("human walks counsel-review → ready, then SUBMIT is structurally blocked (Prime Directive)", async ({
+test("human walks pricing → compliance → counsel-review → ready, then SUBMIT is structurally blocked (Prime Directive)", async ({
   page,
 }) => {
   const db = pool();
@@ -144,7 +144,41 @@ test("human walks counsel-review → ready, then SUBMIT is structurally blocked 
     await loginAdmin(page);
     await page.goto(url);
 
-    // 1) Record counsel review (DRAFT → COUNSEL_REVIEW).
+    // 0) §3.2 baseline audit: DRAFT → PRICING_REVIEW → COMPLIANCE_REVIEW were unreachable — the ladder used
+    // to skip straight from DRAFT to COUNSEL_REVIEW. Walk both new steps first.
+    await page.getByRole("button", { name: "Mark pricing reviewed" }).click();
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(`SELECT status FROM proposals WHERE id = $1`, [
+          proposalId,
+        ]);
+        return r.rows[0]?.status;
+      })
+      .toBe("PRICING_REVIEW");
+    const pricingAudit = await db.query(
+      `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'PROPOSAL_PRICING_REVIEWED' AND entity_id = $2`,
+      [oid, proposalId],
+    );
+    expect(pricingAudit.rowCount).toBe(1);
+
+    await page.goto(url);
+    await page.getByRole("button", { name: "Mark compliance reviewed" }).click();
+    await expect
+      .poll(async () => {
+        const r = await db.query<{ status: string }>(`SELECT status FROM proposals WHERE id = $1`, [
+          proposalId,
+        ]);
+        return r.rows[0]?.status;
+      })
+      .toBe("COMPLIANCE_REVIEW");
+    const complianceAudit = await db.query(
+      `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'PROPOSAL_COMPLIANCE_REVIEWED' AND entity_id = $2`,
+      [oid, proposalId],
+    );
+    expect(complianceAudit.rowCount).toBe(1);
+
+    // 1) Record counsel review (COMPLIANCE_REVIEW → COUNSEL_REVIEW).
+    await page.goto(url);
     await page.getByRole("button", { name: "Record counsel review" }).click();
     await expect
       .poll(async () => {

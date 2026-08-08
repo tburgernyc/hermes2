@@ -17,6 +17,8 @@
  *  13. manual/0012_phase_a_checks.sql documents owner-XOR rewrite (9 owners) — MUST run after the
  *      drizzle batch commits: it uses document_entity_type labels 0005 adds via ALTER TYPE ADD
  *      VALUE, which PostgreSQL forbids using inside the same transaction (55P04).
+ *  14. manual/0013_admin_role_hardening.sql orgs UPDATE requires the app.current_admin_role GUC to
+ *      read 'FULL' (§3.6 decision-4 DB-level backstop for orgs.directives/compliance-settings writes).
  *
  * Every manual step is idempotent, so re-running is safe.
  */
@@ -63,6 +65,7 @@ async function main(): Promise<void> {
     await runManual(pool, "0010_vendor_reads.sql");
     await runManual(pool, "0011_vendor_writes.sql");
     await runManual(pool, "0012_phase_a_checks.sql");
+    await runManual(pool, "0013_admin_role_hardening.sql");
 
     // Post-condition: the tokenized line-item insert depends on sync_line_item_contract_type being
     // SECURITY DEFINER (0008 — the token role can't SELECT vendor_quotes the trigger reads). If a future

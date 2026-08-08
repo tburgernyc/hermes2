@@ -64,6 +64,9 @@ const EXPECTED_POLICIES = new Set<string>([
   // hermes_app/hermes_token, so the logged-in submit's in-tx audit write needs this org-scoped
   // INSERT policy (PERMISSIVE — paired with an INSERT-only grant; no read/alter/erase).
   "audit_log.audit_log_vendor_append",
+  // §3.6 decision-4 DB-level backstop (0013_admin_role_hardening.sql): orgs.directives/compliance
+  // settings can only be UPDATEd by hermes_app when app.current_admin_role reads 'FULL'.
+  "orgs.orgs_update_requires_full_admin",
 ]);
 
 const RESTRICTIVE_POLICIES = new Set<string>([
@@ -71,6 +74,7 @@ const RESTRICTIVE_POLICIES = new Set<string>([
   "documents.documents_token_prospect_only",
   ...VENDOR_SCOPED_TABLES.map((t) => `${t}.${t}_vendor_scope`),
   "vendor_quote_line_items.vendor_quote_line_items_vendor_scope",
+  "orgs.orgs_update_requires_full_admin",
 ]);
 
 interface PrivRow {
@@ -262,6 +266,22 @@ d("guards: triggers, RLS, policies, roles, grants", () => {
   it("has EXACTLY the expected policy set (drift guard: no unexpected/extra RLS policies)", () => {
     expect([...policies].sort()).toEqual([...EXPECTED_POLICIES].sort());
     expect([...restrictivePolicies].sort()).toEqual([...RESTRICTIVE_POLICIES].sort());
+  });
+
+  it("binds a non-zero admin_role-aware RLS policy (§3.6 decision-4 DB-level backstop)", async () => {
+    // The direct answer to the verifier's empirical finding
+    // (`select count(*) from pg_policies where qual ilike '%admin_role%' or with_check ilike
+    // '%admin_role%'` returned 0 before this unit). Runs the identical query.
+    const client = await getTestPool().connect();
+    try {
+      const r = await client.query<{ count: string }>(
+        `SELECT count(*) FROM pg_policies
+         WHERE qual ILIKE '%admin_role%' OR with_check ILIKE '%admin_role%'`,
+      );
+      expect(Number(r.rows[0]?.count)).toBeGreaterThan(0);
+    } finally {
+      client.release();
+    }
   });
 
   it("creates non-owner roles with no BYPASSRLS / no superuser (NOLOGIN except the app connection role)", () => {

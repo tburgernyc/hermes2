@@ -114,3 +114,43 @@ export async function withVendorRole<T>(
     return fn(tx);
   });
 }
+
+/**
+ * Run `fn` inside a transaction with the RLS tenant context set to `orgId`, AND a second GUC,
+ * `app.current_admin_role`, conveying the caller's SERVER-RESOLVED session admin access level
+ * (FULL/CAPTURE/FINANCE, or null) to the DB. This is the §3.6 decision-4 DB-level backstop behind
+ * `orgs`'s RESTRICTIVE `orgs_update_requires_full_admin` policy (migration 0013): the ONLY thing
+ * standing between a compromised/mis-wired server-side check and a non-FULL admin rewriting
+ * `orgs.directives` (compliance settings) is this GUC actually being set correctly on every write.
+ *
+ * Unlike withTokenRole/withVendorRole this does NOT elevate to a different role — hermes_app stays
+ * hermes_app. A dedicated low-trust role (mirroring hermes_token/hermes_vendor) would be the wrong
+ * shape here: those roles narrow an ALREADY-low-trust caller's surface for many tables; this instead
+ * adds one extra fact ("is this session FULL?") on top of an already-fully-trusted hermes_app
+ * connection, for exactly one table's UPDATE. A GUC is the minimal primitive for that, and it mirrors
+ * withOrg's existing set_config pattern exactly.
+ *
+ * FAIL CLOSED: passing `null`/`undefined` (or using plain `withOrg` instead of this helper) must
+ * never be interpreted as FULL. `current_setting('app.current_admin_role', true)` reads as NULL on a
+ * virgin backend and as '' on a pooled connection that set the GUC in an earlier transaction and then
+ * ran a plain `withOrg` call that never re-set it (the documented footgun — see withVendorRole above).
+ * Both `NULL = 'FULL'` and `'' = 'FULL'` evaluate to NULL/false in SQL, which a RESTRICTIVE policy
+ * treats as "row excluded" — so both cases deny by construction; only the literal string 'FULL' passes.
+ * Coercing `adminRole` to `''` (never to a truthy sentinel) here keeps that guarantee explicit rather
+ * than relying on set_config's own NULL-handling.
+ *
+ * SECURITY: `adminRole` must be the server-resolved session claim (session.user.adminRole from
+ * requireFullAdmin()'s return), never a client-supplied value — the same rule as §7's token/vendor
+ * paths.
+ */
+export async function withOrgAsAdmin<T>(
+  orgId: string,
+  adminRole: string | null | undefined,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return getDb().transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('app.current_org_id', ${orgId}, true)`);
+    await tx.execute(sql`SELECT set_config('app.current_admin_role', ${adminRole ?? ""}, true)`);
+    return fn(tx);
+  });
+}

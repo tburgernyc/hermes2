@@ -485,6 +485,22 @@ export async function sendOutreach(
     .set({ status: "SOURCING_IN_PROGRESS" })
     .where(and(eq(solicitations.orgId, orgId), eq(solicitations.id, campaign.solicitationId)));
 
+  // §3.2 baseline audit: CONTACTED was a prospect_status value with no writer anywhere in the app — a
+  // prospect stayed NEW/SCREENED forever even after outreach actually sent. The discovery eligibility
+  // filter above already treats CONTACTED as a normal, still-reachable-for-future-outreach status, so
+  // setting it here closes the gap without changing any other logic. Never regresses a prospect that has
+  // already progressed further (RESPONDED/QUALIFIED/PROMOTED/DECLINED/OPTED_OUT stay untouched).
+  await tx
+    .update(vendorProspects)
+    .set({ status: "CONTACTED" })
+    .where(
+      and(
+        eq(vendorProspects.orgId, orgId),
+        eq(vendorProspects.id, prospect.id),
+        inArray(vendorProspects.status, ["NEW", "SCREENED"]),
+      ),
+    );
+
   await writeAudit(tx, {
     orgId,
     actorType: "ADMIN", // a human authorized this send

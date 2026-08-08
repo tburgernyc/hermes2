@@ -431,4 +431,243 @@ test.describe("award-subcontract (§3.1)", () => {
       await db4.end();
     }
   });
+
+  // §3.2 baseline audit: contract_status ACTIVE/COMPLETED/CLOSED_OUT and esign_status SIGNED/EXPIRED had
+  // ZERO writers — a contract cascaded from an award sat at PENDING_SIGNATURE/NOT_STARTED forever, and
+  // contract_milestones rows sat at PENDING forever (no UPDATE anywhere). This drives the full post-award
+  // lifecycle: an admin resolving a SENT e-signature (expired → resent → signed), activating the contract,
+  // advancing a milestone PENDING → IN_PROGRESS → COMPLETED, then completing and closing out the contract.
+  test("admin resolves e-signature, activates the contract, advances a milestone, then completes and closes it out", async ({
+    page,
+  }) => {
+    const db = pool();
+    let solId = "";
+    let contractId = "";
+    let milestoneId = "";
+    try {
+      const vendor = await db.query<{ id: string }>(
+        `INSERT INTO vendors (org_id, company_name, status, vetted_by, vetted_at)
+         VALUES ($1, $2, 'VETTED', $3, now()) RETURNING id`,
+        [ctx.orgId, `Lifecycle Vendor ${randomUUID().slice(0, 8)}`, ctx.adminId],
+      );
+      const vendorId = vendor.rows[0]!.id;
+
+      const sol = await db.query<{ id: string }>(
+        `INSERT INTO solicitations (org_id, notice_id, title, contract_type, status)
+         VALUES ($1, $2, $3, 'FFP', 'AWARDED') RETURNING id`,
+        [ctx.orgId, `LC-${randomUUID().slice(0, 8)}`, `Lifecycle Solicitation ${randomUUID().slice(0, 8)}`],
+      );
+      solId = sol.rows[0]!.id;
+
+      // Seed a contract as if draftSubcontract had already cascaded it AND the admin had already
+      // confirmed review + sent it for signature (SENT) — this test drives everything past that point.
+      const contract = await db.query<{ id: string }>(
+        `INSERT INTO contracts
+           (org_id, solicitation_id, awarded_vendor_id, contract_type, total_value, status, esign_status,
+            agreement_reviewed_by, agreement_reviewed_at)
+         VALUES ($1, $2, $3, 'FFP', 25000, 'PENDING_SIGNATURE', 'SENT', $4, now())
+         RETURNING id`,
+        [ctx.orgId, solId, vendorId, ctx.adminId],
+      );
+      contractId = contract.rows[0]!.id;
+      const milestone = await db.query<{ id: string }>(
+        `INSERT INTO contract_milestones (org_id, contract_id, sequence, description, amount, status)
+         VALUES ($1, $2, 1, 'Phase 1 deliverable', 25000, 'PENDING') RETURNING id`,
+        [ctx.orgId, contractId],
+      );
+      milestoneId = milestone.rows[0]!.id;
+
+      await loginAdmin(page);
+      const url = `/admin/solicitations/${solId}/subcontract`;
+      await page.goto(url);
+
+      // esign_status SENT → the resolve buttons are offered; record EXPIRED first (an admin observation).
+      await page.getByRole("button", { name: "Record expired" }).click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(`SELECT esign_status AS v FROM contracts WHERE id = $1`, [
+            contractId,
+          ]);
+          return r.rows[0]?.v;
+        })
+        .toBe("EXPIRED");
+      const expiredAudit = await db.query(
+        `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'CONTRACT_ESIGN_EXPIRED' AND entity_id = $2`,
+        [ctx.orgId, contractId],
+      );
+      expect(expiredAudit.rowCount).toBe(1);
+
+      // EXPIRED can be explicitly resent (an admin retry, not automatic) — "Resend e-signature" reuses startEsign.
+      await page.goto(url);
+      await page.getByRole("button", { name: "Resend e-signature" }).click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(`SELECT esign_status AS v FROM contracts WHERE id = $1`, [
+            contractId,
+          ]);
+          return r.rows[0]?.v;
+        })
+        .toBe("SENT");
+
+      // Now record SIGNED (the countersigned agreement came back).
+      await page.goto(url);
+      await page.getByRole("button", { name: "Record signed" }).click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(`SELECT esign_status AS v FROM contracts WHERE id = $1`, [
+            contractId,
+          ]);
+          return r.rows[0]?.v;
+        })
+        .toBe("SIGNED");
+      const signedAudit = await db.query(
+        `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'CONTRACT_ESIGN_SIGNED' AND entity_id = $2`,
+        [ctx.orgId, contractId],
+      );
+      expect(signedAudit.rowCount).toBe(1);
+
+      // SIGNED unlocks "Activate contract" (contract_status ACTIVE naturally follows a recorded signature).
+      await page.goto(url);
+      await expect(page.getByTestId("activate-contract-button")).toBeVisible();
+      await page.getByTestId("activate-contract-button").click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(`SELECT status AS v FROM contracts WHERE id = $1`, [
+            contractId,
+          ]);
+          return r.rows[0]?.v;
+        })
+        .toBe("ACTIVE");
+      const activatedAudit = await db.query(
+        `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'CONTRACT_ACTIVATED' AND entity_id = $2`,
+        [ctx.orgId, contractId],
+      );
+      expect(activatedAudit.rowCount).toBe(1);
+
+      // Milestone: PENDING → IN_PROGRESS → COMPLETED.
+      await page.goto(url);
+      await page.getByTestId(`milestone-${milestoneId}`).getByRole("button", { name: "Start" }).click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(
+            `SELECT status AS v FROM contract_milestones WHERE id = $1`,
+            [milestoneId],
+          );
+          return r.rows[0]?.v;
+        })
+        .toBe("IN_PROGRESS");
+      const startedAudit = await db.query(
+        `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'MILESTONE_STARTED' AND entity_id = $2`,
+        [ctx.orgId, milestoneId],
+      );
+      expect(startedAudit.rowCount).toBe(1);
+
+      await page.goto(url);
+      await page.getByTestId(`milestone-${milestoneId}`).getByRole("button", { name: "Complete" }).click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(
+            `SELECT status AS v FROM contract_milestones WHERE id = $1`,
+            [milestoneId],
+          );
+          return r.rows[0]?.v;
+        })
+        .toBe("COMPLETED");
+      const milestoneCompletedAudit = await db.query(
+        `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'MILESTONE_COMPLETED' AND entity_id = $2`,
+        [ctx.orgId, milestoneId],
+      );
+      expect(milestoneCompletedAudit.rowCount).toBe(1);
+      // The finance-flow explanation renders — INVOICED/PAID are deliberately never written here.
+      await expect(page.getByText(/driven by the §3.3 accounts-receivable flow/)).toBeVisible();
+
+      // Contract: ACTIVE → COMPLETED → CLOSED_OUT.
+      await page.goto(url);
+      await page.getByRole("button", { name: "Mark completed" }).click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(`SELECT status AS v FROM contracts WHERE id = $1`, [
+            contractId,
+          ]);
+          return r.rows[0]?.v;
+        })
+        .toBe("COMPLETED");
+
+      await page.goto(url);
+      await page.getByRole("button", { name: "Close out" }).click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(`SELECT status AS v FROM contracts WHERE id = $1`, [
+            contractId,
+          ]);
+          return r.rows[0]?.v;
+        })
+        .toBe("CLOSED_OUT");
+      const closedOutAudit = await db.query(
+        `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'CONTRACT_CLOSED_OUT' AND entity_id = $2`,
+        [ctx.orgId, contractId],
+      );
+      expect(closedOutAudit.rowCount).toBe(1);
+
+      // Terminal: no lifecycle buttons remain on a CLOSED_OUT contract.
+      await page.goto(url);
+      await expect(page.getByRole("button", { name: "Mark completed" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Close out" })).toHaveCount(0);
+      await expect(page.getByTestId("terminate-contract-button")).toHaveCount(0);
+    } finally {
+      await db.end();
+    }
+  });
+
+  // TERMINATED must be reachable independently of the happy path (a deliberate admin decision at any
+  // non-terminal point, not inferred from anything else advancing).
+  test("admin terminates a contract before signature — a deliberate decision, never inferred", async ({
+    page,
+  }) => {
+    const db = pool();
+    try {
+      const vendor = await db.query<{ id: string }>(
+        `INSERT INTO vendors (org_id, company_name, status, vetted_by, vetted_at)
+         VALUES ($1, $2, 'VETTED', $3, now()) RETURNING id`,
+        [ctx.orgId, `Terminate Vendor ${randomUUID().slice(0, 8)}`, ctx.adminId],
+      );
+      const vendorId = vendor.rows[0]!.id;
+      const sol = await db.query<{ id: string }>(
+        `INSERT INTO solicitations (org_id, notice_id, title, contract_type, status)
+         VALUES ($1, $2, $3, 'FFP', 'AWARDED') RETURNING id`,
+        [ctx.orgId, `TERM-${randomUUID().slice(0, 8)}`, `Terminate Solicitation ${randomUUID().slice(0, 8)}`],
+      );
+      const solId = sol.rows[0]!.id;
+      const contract = await db.query<{ id: string }>(
+        `INSERT INTO contracts (org_id, solicitation_id, awarded_vendor_id, contract_type, total_value, status, esign_status)
+         VALUES ($1, $2, $3, 'FFP', 5000, 'PENDING_SIGNATURE', 'NOT_STARTED') RETURNING id`,
+        [ctx.orgId, solId, vendorId],
+      );
+      const contractId = contract.rows[0]!.id;
+
+      await loginAdmin(page);
+      await page.goto(`/admin/solicitations/${solId}/subcontract`);
+      await page.getByTestId("terminate-contract-button").click();
+      await expect
+        .poll(async () => {
+          const r = await db.query<{ v: string }>(`SELECT status AS v FROM contracts WHERE id = $1`, [
+            contractId,
+          ]);
+          return r.rows[0]?.v;
+        })
+        .toBe("TERMINATED");
+      const audit = await db.query(
+        `SELECT 1 FROM audit_log WHERE org_id = $1 AND action = 'CONTRACT_TERMINATED' AND entity_id = $2`,
+        [ctx.orgId, contractId],
+      );
+      expect(audit.rowCount).toBe(1);
+
+      // Terminal — no lifecycle buttons remain.
+      await page.goto(`/admin/solicitations/${solId}/subcontract`);
+      await expect(page.getByTestId("terminate-contract-button")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Activate contract" })).toHaveCount(0);
+    } finally {
+      await db.end();
+    }
+  });
 });
